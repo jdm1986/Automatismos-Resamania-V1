@@ -7,8 +7,9 @@ import json
 import pandas as pd
 from logic.wizville import procesar_wizville
 from logic.accesos import procesar_accesos_dobles, procesar_accesos_descuadrados, procesar_salidas_pmr_no_autorizadas, \
-    procesar_morosos_activos, procesar_morosos_accediendo
+    procesar_morosos_accediendo
 from logic.ultimate import obtener_socios_ultimate
+from utils.file_loader import load_data_file
 
 CONFIG_PATH = "config.json"
 
@@ -59,23 +60,23 @@ class ResamaniaApp(tk.Tk):
             tk.Label(top_frame, image=self.logo_img).pack(side=tk.LEFT, padx=10)
 
         instrucciones = (
-            "\u2705 INSTRUCCIONES PARA USO CORRECTO:\n\n"
-            "- La carpeta seleccionada debe contener los siguientes archivos renombrados:\n"
-            "   • RESUMEN CLIENTE.xlsx (exportado de Resamania)\n"
-            "   • ACCESOS.xlsx (exportado de Resamania con intervalo de fechas de 4 semanas)\n"
-            "   • FACTURAS Y VALES.xlsx (exportado de Resamania desde 'Facturas y vales' con intervalo de fechas del mes anterior del 1 al 5 de cada mes)\n"
-            "   • IMPAGOS.xlsx (exportado desde 'Incidencias por tipo de pago' con intervalo de fechas de los 3 meses anteriores hasta el mismo día)\n\n"
-            "- Ambos archivos deben ser del mismo día de exportación.\n"
-            "- Pulsa el botón 'Seleccionar carpeta' para comenzar la revisión.\n\n"
+            "INSTRUCCIONES PARA USO CORRECTO:\n\n"
+            "- La carpeta seleccionada debe contener los siguientes archivos (exportados de Resamania):\n"
+            "   - RESUMEN CLIENTE.csv\n"
+            "   - ACCESOS.csv (intervalo de 4 semanas)\n"
+            "   - FACTURAS Y VALES.csv (intervalo del mes anterior, del dia 1 al 5)\n"
+            "   - IMPAGOS.csv (Incidencias por tipo de pago, ultimos 3 meses)\n\n"
+            "- Todos los archivos deben ser del mismo dia de exportacion.\n"
+            "- Pulsa el boton 'Seleccionar carpeta' para comenzar la revision.\n\n"
             "NOTA: Una vez seleccionada una carpeta, el programa la mantiene por defecto hasta que elijas otra."
         )
         tk.Label(top_frame, text=instrucciones, justify='left', anchor='w').pack(side=tk.LEFT, padx=10)
 
         botones_frame = tk.Frame(self)
         botones_frame.pack(pady=5)
-        tk.Button(botones_frame, text="📁 Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="🔄 Actualizar datos", command=self.load_data).pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="📄 Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="Actualizar datos", command=self.load_data).pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(expand=1, fill='both')
@@ -83,8 +84,7 @@ class ResamaniaApp(tk.Tk):
         self.tabs = {}
         for tab_name in [
             "Wizville", "Accesos Dobles", "Accesos Descuadrados",
-            "Salidas PMR No Autorizadas", "Morosos Activos",
-            "Morosos Accediendo", "Socios Ultimate"
+            "Salidas PMR No Autorizadas", "Morosos Accediendo", "Socios Ultimate"
         ]:
             tab = ttk.Frame(self.notebook)
             self.notebook.add(tab, text=tab_name)
@@ -143,19 +143,18 @@ class ResamaniaApp(tk.Tk):
             return
 
         try:
-            resumen = pd.read_excel(os.path.join(self.folder_path, "RESUMEN CLIENTE.xlsx"))
-            accesos = pd.read_excel(os.path.join(self.folder_path, "ACCESOS.xlsx"))
-            incidencias = pd.read_excel(os.path.join(self.folder_path, "IMPAGOS.xlsx"))
+            resumen = load_data_file(self.folder_path, "RESUMEN CLIENTE")
+            accesos = load_data_file(self.folder_path, "ACCESOS")
+            incidencias = load_data_file(self.folder_path, "IMPAGOS")
 
             self.mostrar_en_tabla("Wizville", procesar_wizville(resumen, accesos))
             self.mostrar_en_tabla("Accesos Dobles", procesar_accesos_dobles(resumen, accesos))
             self.mostrar_en_tabla("Accesos Descuadrados", procesar_accesos_descuadrados(resumen, accesos))
             self.mostrar_en_tabla("Salidas PMR No Autorizadas", procesar_salidas_pmr_no_autorizadas(resumen, accesos))
-            self.mostrar_en_tabla("Morosos Activos", procesar_morosos_activos(incidencias), color="#FFF2CC")
             self.mostrar_en_tabla("Morosos Accediendo", procesar_morosos_accediendo(incidencias, accesos), color="#F4CCCC")
             self.mostrar_en_tabla("Socios Ultimate", obtener_socios_ultimate())
 
-            messagebox.showinfo("Éxito", "Datos cargados correctamente.")
+            messagebox.showinfo("Exito", "Datos cargados correctamente.")
         except Exception as e:
             messagebox.showerror("Error al cargar datos", str(e))
 
@@ -195,12 +194,12 @@ class ResamaniaApp(tk.Tk):
 
     def exportar_excel(self):
         try:
-            pestaña_activa = self.notebook.select()
-            nombre_pestaña = self.notebook.tab(pestaña_activa, "text")
-            tree = self.tabs[nombre_pestaña].tree
+            pestana_activa = self.notebook.select()
+            nombre_pestana = self.notebook.tab(pestana_activa, "text")
+            tree = self.tabs[nombre_pestana].tree
 
             if not tree.get_children():
-                messagebox.showwarning("Sin datos", f"No hay datos para exportar en la pestaña {nombre_pestaña}.")
+                messagebox.showwarning("Sin datos", f"No hay datos para exportar en la pestana {nombre_pestana}.")
                 return
 
             columnas = tree["columns"]
@@ -210,12 +209,12 @@ class ResamaniaApp(tk.Tk):
             archivo = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
                 filetypes=[("Excel files", "*.xlsx")],
-                initialfile=f"{nombre_pestaña.replace(' ', '_')}.xlsx"
+                initialfile=f"{nombre_pestana.replace(' ', '_')}.xlsx"
             )
 
             if archivo:
                 df_exportar.to_excel(archivo, index=False)
-                messagebox.showinfo("Éxito", f"Datos exportados correctamente a:\n{archivo}")
+                messagebox.showinfo("Exito", f"Datos exportados correctamente a:\n{archivo}")
         except Exception as e:
             messagebox.showerror("Error al exportar", str(e))
 

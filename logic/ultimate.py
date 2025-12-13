@@ -1,6 +1,6 @@
-import os
 import pandas as pd
 import json
+from utils.file_loader import load_data_file
 
 def obtener_socios_ultimate():
     # Cargar ruta desde config.json
@@ -8,13 +8,10 @@ def obtener_socios_ultimate():
         config = json.load(f)
     carpeta_datos = config.get("carpeta_datos", "")
 
-    # Ruta completa del archivo
-    ruta_archivo = os.path.join(carpeta_datos, "FACTURAS Y VALES.xlsx")
-
-    if not os.path.exists(ruta_archivo):
+    try:
+        df = load_data_file(carpeta_datos, "FACTURAS Y VALES")
+    except FileNotFoundError:
         return pd.DataFrame(columns=["número de cliente", "Nombre", "Apellidos"])
-
-    df = pd.read_excel(ruta_archivo)
 
     if "Número de cliente" not in df.columns or "Nombre del producto" not in df.columns:
         return pd.DataFrame(columns=["número de cliente", "Nombre", "Apellidos"])

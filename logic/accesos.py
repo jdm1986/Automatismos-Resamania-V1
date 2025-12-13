@@ -6,7 +6,9 @@ def procesar_accesos_dobles(resumen_df, accesos_df):
     resumen_df = resumen_df[resumen_df["Estado"].str.lower() == "cliente"]
 
     # Filtrar accesos de los últimos 7 días
-    accesos_df["Fecha corta de acceso"] = pd.to_datetime(accesos_df["Fecha corta de acceso"], errors="coerce")
+    accesos_df["Fecha corta de acceso"] = pd.to_datetime(
+        accesos_df["Fecha corta de acceso"], errors="coerce", dayfirst=True
+    )
     una_semana = datetime.today() - timedelta(days=7)
     accesos_df = accesos_df[accesos_df["Fecha corta de acceso"] >= una_semana]
 
@@ -25,7 +27,9 @@ def procesar_accesos_dobles(resumen_df, accesos_df):
 def procesar_accesos_descuadrados(resumen_df, accesos_df):
     resumen_df = resumen_df[resumen_df["Estado"].str.lower() == "cliente"]
 
-    accesos_df["Fecha corta de acceso"] = pd.to_datetime(accesos_df["Fecha corta de acceso"], errors="coerce")
+    accesos_df["Fecha corta de acceso"] = pd.to_datetime(
+        accesos_df["Fecha corta de acceso"], errors="coerce", dayfirst=True
+    )
     hace_7_dias = datetime.today() - timedelta(days=7)
     accesos_df = accesos_df[accesos_df["Fecha corta de acceso"] >= hace_7_dias]
 
@@ -53,7 +57,9 @@ def procesar_salidas_pmr_no_autorizadas(resumen_df, accesos_df):
     hace_una_semana = hoy - timedelta(days=7)
 
     # Convertir y filtrar por fecha
-    accesos_df["Fecha corta de acceso"] = pd.to_datetime(accesos_df["Fecha corta de acceso"], errors="coerce")
+    accesos_df["Fecha corta de acceso"] = pd.to_datetime(
+        accesos_df["Fecha corta de acceso"], errors="coerce", dayfirst=True
+    )
     accesos_rango = accesos_df[
         (accesos_df["Fecha corta de acceso"].dt.date >= hace_una_semana) &
         (accesos_df["Fecha corta de acceso"].dt.date <= hoy)
@@ -102,7 +108,7 @@ def procesar_morosos_accediendo(incidencias_df, accesos_df):
     clientes_morosos = morosos['número de cliente'].unique()
 
     # Convertir fecha y filtrar últimos 7 días
-    accesos_df['fecha de acceso'] = pd.to_datetime(accesos_df['fecha de acceso'], errors='coerce')
+    accesos_df['fecha de acceso'] = pd.to_datetime(accesos_df['fecha de acceso'], errors='coerce', dayfirst=True)
     hace_7_dias = datetime.today() - timedelta(days=7)
     accesos_recientes = accesos_df[accesos_df['fecha de acceso'] >= hace_7_dias]
 
@@ -128,7 +134,6 @@ def procesar_morosos_accediendo(incidencias_df, accesos_df):
             "punto de acceso del pasaje": "Acceso por"
         }
     )
-
 
 
 

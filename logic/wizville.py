@@ -11,7 +11,7 @@ def calcular_franja_horaria(accesos_cliente):
     if accesos_cliente.empty:
         return "Sin datos"
 
-    horas = pd.to_datetime(accesos_cliente["Fecha de acceso"]).dt.hour
+    horas = pd.to_datetime(accesos_cliente["Fecha de acceso"], dayfirst=True, errors="coerce").dt.hour
     franjas = []
 
     for h in horas:
@@ -38,7 +38,7 @@ def procesar_wizville(resumen_df, accesos_df):
     clientes = resumen_df[resumen_df["Estado"].str.lower() == "cliente"]
 
     # Parsear fecha de alta
-    clientes.loc[:, "Inicio del abono"] = pd.to_datetime(clientes["Inicio del abono"], errors="coerce")
+    clientes.loc[:, "Inicio del abono"] = pd.to_datetime(clientes["Inicio del abono"], errors="coerce", dayfirst=True)
     clientes = clientes.dropna(subset=["Inicio del abono"])  # Elimina filas sin fecha válida
     clientes.loc[:, "Días desde alta"] = clientes["Inicio del abono"].apply(calcular_dias_alta)
 
