@@ -1,6 +1,16 @@
 import pandas as pd
 from datetime import datetime, timedelta
 
+def _find_column(df, keywords):
+    """
+    Busca la primera columna cuyo nombre (minúsculas, strip) contenga todos los keywords.
+    """
+    for col in df.columns:
+        normal = col.lower().strip()
+        if all(k in normal for k in keywords):
+            return col
+    return None
+
 def procesar_accesos_dobles(resumen_df, accesos_df):
     # Filtrar solo "Cliente" desde RESUMEN
     resumen_df = resumen_df[resumen_df["Estado"].str.lower() == "cliente"]
@@ -96,44 +106,59 @@ def procesar_morosos_activos(incidencias_df, accesos_df=None):
     return morosos_df
 
 def procesar_morosos_accediendo(incidencias_df, accesos_df):
-    from datetime import datetime, timedelta
-    import pandas as pd
+    # Copias para no mutar originales
+    accesos_df = accesos_df.copy()
+    incidencias_df = incidencias_df.copy()
 
-    # Normalizar columnas
-    incidencias_df.columns = [c.lower().strip() for c in incidencias_df.columns]
-    accesos_df.columns = [c.lower().strip() for c in accesos_df.columns]
+    col_cliente_impagos = _find_column(incidencias_df, ["número", "cliente"]) or _find_column(incidencias_df, ["numero", "cliente"])
+    if not col_cliente_impagos:
+        raise ValueError("Falta la columna 'Número de cliente' en IMPAGOS.csv")
 
-    # Filtrar solo morosos activos
-    morosos = incidencias_df[incidencias_df['estado del incidente'].str.upper() == 'ABIERTO']
-    clientes_morosos = morosos['número de cliente'].unique()
+    col_cliente_accesos = _find_column(accesos_df, ["número", "cliente"]) or _find_column(accesos_df, ["numero", "cliente"])
+    col_fecha = _find_column(accesos_df, ["fecha", "acceso"])
+    col_paso = _find_column(accesos_df, ["punto", "acceso"])
+    col_nombre = _find_column(accesos_df, ["nombre"])
+    col_apellidos = _find_column(accesos_df, ["apell"])
+    col_bloqueado = None
+    for col in accesos_df.columns:
+        if "bloque" in col.lower():
+            col_bloqueado = col
+            break
 
-    # Convertir fecha y filtrar últimos 7 días
-    accesos_df['fecha de acceso'] = pd.to_datetime(accesos_df['fecha de acceso'], errors='coerce', dayfirst=True)
+    if not all([col_cliente_accesos, col_fecha, col_paso, col_nombre, col_apellidos]):
+        raise ValueError("Faltan columnas requeridas en ACCESOS.csv (cliente/fecha/punto/nombre/apellidos).")
+    if not col_bloqueado:
+        raise ValueError("Falta la columna de 'acceso bloqueado' en ACCESOS.csv.")
+
+    # Lista de morosos (deduplicada)
+    clientes_morosos = incidencias_df[col_cliente_impagos].dropna().unique()
+
+    # Parseo de fecha y filtro últimos 7 días
+    accesos_df[col_fecha] = pd.to_datetime(accesos_df[col_fecha], errors='coerce', dayfirst=True)
     hace_7_dias = datetime.today() - timedelta(days=7)
-    accesos_recientes = accesos_df[accesos_df['fecha de acceso'] >= hace_7_dias]
+    accesos_recientes = accesos_df[accesos_df[col_fecha] >= hace_7_dias]
 
-    # Filtrar accesos de morosos
-    accesos_morosos = accesos_recientes[accesos_recientes['número de cliente'].isin(clientes_morosos)]
+    # Filtrar accesos de morosos y con bloqueo activo (valor 1)
+    accesos_filtrados = accesos_recientes[
+        (accesos_recientes[col_cliente_accesos].isin(clientes_morosos)) &
+        (accesos_recientes[col_bloqueado] == 1)
+    ]
+
+    if accesos_filtrados.empty:
+        return pd.DataFrame(columns=["Nombre", "Apellidos", "Número de cliente", "Último acceso", "Acceso por", "Bloqueado"])
 
     # Tomar último acceso por cliente
-    ultimos = accesos_morosos.sort_values("fecha de acceso").groupby("número de cliente").tail(1)
+    ultimos = accesos_filtrados.sort_values(col_fecha).groupby(col_cliente_accesos).tail(1)
 
-    # Unir con datos básicos (por si queremos nombre, etc.)
-    resumen = accesos_morosos.drop_duplicates(subset="número de cliente")[["número de cliente", "nombre", "apellidos"]]
-    resultado = pd.merge(resumen, ultimos, on="número de cliente", suffixes=("_x", "_y"))
+    # Armar resultado
+    resultado = pd.DataFrame({
+        "Número de cliente": ultimos[col_cliente_accesos],
+        "Nombre": ultimos[col_nombre],
+        "Apellidos": ultimos[col_apellidos],
+        "Último acceso": ultimos[col_fecha].dt.strftime("%d/%m/%Y %H:%M"),
+        "Acceso por": ultimos[col_paso],
+        "Bloqueado": ultimos[col_bloqueado],
+    })
 
-    # Formatear la hora legible
-    resultado["fecha de acceso"] = resultado["fecha de acceso"].dt.strftime("%d/%m/%Y %H:%M")
-
-    # Devolver columnas organizadas
-    return resultado[["nombre_x", "apellidos_x", "número de cliente", "fecha de acceso", "punto de acceso del pasaje"]].rename(
-        columns={
-            "nombre_x": "Nombre",
-            "apellidos_x": "Apellidos",
-            "fecha de acceso": "Último acceso",
-            "punto de acceso del pasaje": "Acceso por"
-        }
-    )
-
-
+    return resultado.reset_index(drop=True)
 

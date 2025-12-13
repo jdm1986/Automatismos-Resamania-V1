@@ -61,11 +61,11 @@ class ResamaniaApp(tk.Tk):
 
         instrucciones = (
             "INSTRUCCIONES PARA USO CORRECTO:\n\n"
-            "- La carpeta seleccionada debe contener los siguientes archivos (exportados de Resamania):\n"
+            "- La carpeta seleccionada debe contener los siguientes archivos (exportados de Resamania y deben sobreescribir los existentes):\n"
             "   - RESUMEN CLIENTE.csv\n"
-            "   - ACCESOS.csv (intervalo de 4 semanas)\n"
-            "   - FACTURAS Y VALES.csv (intervalo del mes anterior, del dia 1 al 5)\n"
-            "   - IMPAGOS.csv (Incidencias por tipo de pago, ultimos 3 meses)\n\n"
+            "   - ACCESOS.csv (intervalo de 4 semanas atrás)\n"
+            "   - FACTURAS Y VALES.csv (intervalo de 4 semanas atrás)\n"
+            "   - IMPAGOS.csv (Exportar el día actual el archivo - Clientes con Incidente de Pago)\n\n"
             "- Todos los archivos deben ser del mismo dia de exportacion.\n"
             "- Pulsa el boton 'Seleccionar carpeta' para comenzar la revision.\n\n"
             "NOTA: Una vez seleccionada una carpeta, el programa la mantiene por defecto hasta que elijas otra."
