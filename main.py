@@ -9,6 +9,7 @@ import unicodedata
 import time
 import uuid
 import tempfile
+from datetime import datetime
 from logic.wizville import procesar_wizville
 from logic.accesos import procesar_accesos_dobles, procesar_accesos_descuadrados, procesar_salidas_pmr_no_autorizadas, \
     procesar_morosos_accediendo
@@ -40,6 +41,14 @@ def get_logo_path(filename):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, filename)
     return filename
+
+
+def get_security_code() -> str:
+    """
+    Codigo dinamico: ano + mes - dia (ej. 2025 + 12 - 14 = 2023).
+    """
+    now = datetime.now()
+    return str(now.year + now.month - now.day)
 
 
 class ResamaniaApp(tk.Tk):
@@ -208,6 +217,13 @@ class ResamaniaApp(tk.Tk):
 
     def exportar_excel(self):
         try:
+            pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
+            if pin is None:
+                return
+            if pin.strip() != get_security_code():
+                messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
+                return
+
             pestana_activa = self.notebook.select()
             nombre_pestana = self.notebook.tab(pestana_activa, "text")
             tree = self.tabs[nombre_pestana].tree
@@ -244,7 +260,7 @@ class ResamaniaApp(tk.Tk):
         pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
         if pin is None:
             return  # cancelado
-        if pin.strip() != "123":
+        if pin.strip() != get_security_code():
             messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
             return
 
@@ -352,7 +368,7 @@ class ResamaniaApp(tk.Tk):
         pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
         if pin is None:
             return
-        if pin.strip() != "123":
+        if pin.strip() != get_security_code():
             messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
             return
 
