@@ -675,6 +675,14 @@
   ('logic.accesos',
    'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\logic\\accesos.py',
    'PYMODULE'),
+  ('logic.avanza_fit',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\logic\\avanza_fit.py',
+   'PYMODULE'),
+  ('logic.cumpleanos',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\logic\\cumpleanos.py',
+   'PYMODULE'),
   ('logic.ultimate',
    'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
    'V1\\logic\\ultimate.py',

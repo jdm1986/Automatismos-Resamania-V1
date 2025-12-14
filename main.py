@@ -9,6 +9,8 @@ from logic.wizville import procesar_wizville
 from logic.accesos import procesar_accesos_dobles, procesar_accesos_descuadrados, procesar_salidas_pmr_no_autorizadas, \
     procesar_morosos_accediendo
 from logic.ultimate import obtener_socios_ultimate
+from logic.avanza_fit import obtener_avanza_fit
+from logic.cumpleanos import obtener_cumpleanos_hoy
 from utils.file_loader import load_data_file
 
 CONFIG_PATH = "config.json"
@@ -84,7 +86,8 @@ class ResamaniaApp(tk.Tk):
         self.tabs = {}
         for tab_name in [
             "Wizville", "Accesos Dobles", "Accesos Descuadrados",
-            "Salidas PMR No Autorizadas", "Morosos Accediendo", "Socios Ultimate"
+            "Salidas PMR No Autorizadas", "Morosos Accediendo", "Socios Ultimate",
+            "Avanza Fit", "Cumpleaños"
         ]:
             tab = ttk.Frame(self.notebook)
             self.notebook.add(tab, text=tab_name)
@@ -153,6 +156,8 @@ class ResamaniaApp(tk.Tk):
             self.mostrar_en_tabla("Salidas PMR No Autorizadas", procesar_salidas_pmr_no_autorizadas(resumen, accesos))
             self.mostrar_en_tabla("Morosos Accediendo", procesar_morosos_accediendo(incidencias, accesos), color="#F4CCCC")
             self.mostrar_en_tabla("Socios Ultimate", obtener_socios_ultimate())
+            self.mostrar_en_tabla("Avanza Fit", obtener_avanza_fit())
+            self.mostrar_en_tabla("Cumpleaños", obtener_cumpleanos_hoy())
 
             messagebox.showinfo("Exito", "Datos cargados correctamente.")
         except Exception as e:
