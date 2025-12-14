@@ -15,7 +15,7 @@ call .venv\Scripts\activate.bat
 
 REM Asegurar dependencias basicas de build
 python -m pip install --upgrade pip >nul 2>&1
-pip install pyinstaller pandas pillow >nul 2>&1
+pip install pyinstaller pandas pillow pywin32 >nul 2>&1
 
 REM Construir ejecutable unico
 pyinstaller ^
@@ -24,10 +24,15 @@ pyinstaller ^
   --windowed ^
   --icon "%~dp0favicon.ico" ^
   --add-data "%~dp0logodeveloper.png;." ^
+  --add-data "%~dp0feliz_cumpleanos.png;." ^
   --add-data "%~dp0config.json;." ^
-  --name "AUTOMASMOS_RESAMANIA" ^
+  --hidden-import=win32com ^
+  --hidden-import=win32com.client ^
+  --hidden-import=pythoncom ^
+  --hidden-import=pywintypes ^
+  --name "AUTOMATISMOS_RESAMANIA" ^
   "%~dp0main.py"
 
 echo.
-echo Listo. Ejecutable en dist\AUTOMASMOS_RESAMANIA.exe
+echo Listo. Ejecutable en dist\AUTOMATISMOS_RESAMANIA.exe
 pause

@@ -98,9 +98,23 @@ def obtener_cumpleanos_hoy() -> pd.DataFrame:
 
     filtrado = df[mask_fecha & mask_estado].copy()
 
-    # Ordenar columnas clave primero
-    preferred = [c for c in [col_cliente, col_nombre, col_apellidos, col_email, col_fecha_nac, col_estado] if c in filtrado.columns]
-    otras = [c for c in filtrado.columns if c not in preferred]
-    filtrado = filtrado[preferred + otras]
+    # Mostrar solo las columnas que usa el script original, en este orden
+    orden_deseado_norm = [
+        "FECHA DE CREACION",
+        "FECHA DE NACIMIENTO",
+        "CORREO ELECTRONICO",
+        "APELLIDOS",
+        "NOMBRE",
+        "ESTADO",
+        "MOVIL",
+        "INICIO DEL ABONO",
+        "FIN DEL ABONO",
+        "ULTIMO ACCESO 6M",
+    ]
+    columnas_por_norm = {_normalize(col): col for col in filtrado.columns}
+    columnas_finales = [columnas_por_norm[n] for n in orden_deseado_norm if n in columnas_por_norm]
+
+    if columnas_finales:
+        filtrado = filtrado[columnas_finales]
 
     return filtrado.reset_index(drop=True)

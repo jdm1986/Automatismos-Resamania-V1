@@ -1,10 +1,14 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 from PIL import Image, ImageTk
 import os
 import sys
 import json
 import pandas as pd
+import unicodedata
+import time
+import uuid
+import tempfile
 from logic.wizville import procesar_wizville
 from logic.accesos import procesar_accesos_dobles, procesar_accesos_descuadrados, procesar_salidas_pmr_no_autorizadas, \
     procesar_morosos_accediendo
@@ -44,6 +48,7 @@ class ResamaniaApp(tk.Tk):
         self.title("AUTOMATISMOS RESAMANIA - JDM Developer")
         self.state('zoomed')  # Pantalla completa al arrancar
         self.folder_path = get_default_folder()
+        self.dataframes = {}
 
         self.create_widgets()
         if self.folder_path:
@@ -79,6 +84,8 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Actualizar datos", command=self.load_data).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="ENVIAR FELICITACIÓN", command=self.enviar_felicitacion, fg="#b30000").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="ENVÍO MARTES AVANZA FIT", command=self.enviar_avanza_fit, fg="#b30000").pack(side=tk.LEFT, padx=10)
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(expand=1, fill='both')
@@ -164,6 +171,8 @@ class ResamaniaApp(tk.Tk):
             messagebox.showerror("Error al cargar datos", str(e))
 
     def mostrar_en_tabla(self, tab_name, df, color=None):
+        # Guarda el ultimo dataframe mostrado para poder reutilizarlo (ej. enviar emails)
+        self.dataframes[tab_name] = df.copy()
         tab = self.tabs[tab_name]
         tree = tab.tree
 
@@ -222,6 +231,174 @@ class ResamaniaApp(tk.Tk):
                 messagebox.showinfo("Exito", f"Datos exportados correctamente a:\n{archivo}")
         except Exception as e:
             messagebox.showerror("Error al exportar", str(e))
+
+    def enviar_felicitacion(self):
+        """
+        Pide PIN y abre un borrador de Outlook con los emails de Cumpleaños en BCC.
+        """
+        df = self.dataframes.get("Cumpleaños")
+        if df is None or df.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados en la pestaña Cumpleaños.")
+            return
+
+        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
+        if pin is None:
+            return  # cancelado
+        if pin.strip() != "123":
+            messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
+            return
+
+        def normalize(text):
+            t = unicodedata.normalize("NFD", str(text or "")).upper().strip()
+            return "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
+
+        colmap = {normalize(col): col for col in df.columns}
+        col_email = colmap.get("CORREO ELECTRONICO") or colmap.get("EMAIL") or colmap.get("CORREO")
+
+        if not col_email:
+            messagebox.showerror("Columna faltante", "No se encontró la columna de correo electrónico en Cumpleaños.")
+            return
+
+        emails = df[col_email].dropna().astype(str).str.strip()
+        emails = [e for e in emails if e]
+        emails = list(dict.fromkeys(emails))  # quitar duplicados manteniendo orden
+
+        if not emails:
+            messagebox.showwarning("Sin correos", "No hay correos electrónicos en la pestaña Cumpleaños.")
+            return
+
+        try:
+            import win32com.client  # tipo: ignore
+        except ImportError:
+            # Fallback: copiar correos al portapapeles para pegarlos en BCC manualmente.
+            emails_joined = ";".join(emails)
+            self.clipboard_clear()
+            self.clipboard_append(emails_joined)
+            messagebox.showwarning(
+                "Outlook no disponible",
+                "No se pudo importar win32com.client. Se copiaron los correos al portapapeles para pegarlos en BCC.\n"
+                "Instala pywin32 si quieres que Outlook se abra automáticamente."
+            )
+            return
+
+        def try_outlook():
+            outlook_app = win32com.client.Dispatch("Outlook.Application")
+            # Garantiza sesión; si Outlook no está abierto, fuerza logon.
+            try:
+                ns = outlook_app.GetNamespace("MAPI")
+                ns.Logon("", "", False, False)
+            except Exception:
+                pass
+            return outlook_app
+
+        try:
+            try:
+                outlook = try_outlook()
+            except Exception:
+                # Intentar arrancar Outlook y reintentar
+                try:
+                    os.startfile("outlook.exe")
+                    time.sleep(3)
+                    outlook = try_outlook()
+                except Exception:
+                    raise
+
+            mail = outlook.CreateItem(0)
+            mail.BCC = ";".join(emails)
+            mail.Subject = "¡Felicidades!"
+
+            # Inserta imagen inline si existe en disco.
+            imagen_nombre = "feliz_cumpleanos.png"
+            imagen_path = get_logo_path(imagen_nombre)
+            cid = uuid.uuid4().hex
+
+            if os.path.exists(imagen_path):
+                attachment = mail.Attachments.Add(imagen_path, 1, 0)  # 1 = olByValue
+                attachment.PropertyAccessor.SetProperty(
+                    "http://schemas.microsoft.com/mapi/proptag/0x3712001E", cid
+                )
+                mail.HTMLBody = (
+                    f'<div style="font-family:Arial,sans-serif;font-size:14px;">'
+                    f'<img src="cid:{cid}" alt="Feliz cumpleaños" style="max-width:100%;">'
+                    f"</div>"
+                )
+            else:
+                mail.HTMLBody = (
+                    '<div style="font-family:Arial,sans-serif;font-size:14px;">'
+                    "<p>¡Feliz cumpleaños!</p>"
+                    "</div>"
+                )
+
+            mail.Display()  # abre borrador para revisión
+            messagebox.showinfo("Borrador creado", "Outlook se abrió con los correos en copia oculta.")
+        except Exception as e:
+            emails_joined = ";".join(emails)
+            self.clipboard_clear()
+            self.clipboard_append(emails_joined)
+            messagebox.showerror(
+                "Error con Outlook",
+                f"No se pudo crear el correo en Outlook.\nSe copiaron los correos al portapapeles para pegarlos en BCC.\n\nDetalle: {e}"
+            )
+
+    def enviar_avanza_fit(self):
+        """
+        Pide PIN y abre borrador Outlook con el Excel adjunto de la pestaña Avanza Fit.
+        """
+        df = self.dataframes.get("Avanza Fit")
+        if df is None or df.empty:
+            messagebox.showwarning("Sin datos", "No hay datos cargados en la pestaña Avanza Fit.")
+            return
+
+        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
+        if pin is None:
+            return
+        if pin.strip() != "123":
+            messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
+            return
+
+        # Generar archivo temporal con los datos
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+        tmp_path = tmp_file.name
+        tmp_file.close()
+        df.to_excel(tmp_path, index=False)
+
+        try:
+            import win32com.client  # tipo: ignore
+        except ImportError:
+            messagebox.showwarning(
+                "Outlook no disponible",
+                f"No se pudo importar win32com.client. Adjunta manualmente el archivo:\n{tmp_path}"
+            )
+            return
+
+        def try_outlook():
+            outlook_app = win32com.client.Dispatch("Outlook.Application")
+            try:
+                ns = outlook_app.GetNamespace("MAPI")
+                ns.Logon("", "", False, False)
+            except Exception:
+                pass
+            return outlook_app
+
+        try:
+            try:
+                outlook = try_outlook()
+            except Exception:
+                os.startfile("outlook.exe")
+                time.sleep(3)
+                outlook = try_outlook()
+
+            mail = outlook.CreateItem(0)
+            mail.Subject = "Clientes Avanza Fit (martes)"
+            mail.Body = "Adjunto listado de clientes Avanza Fit (martes-lunes)."
+            mail.Attachments.Add(tmp_path)
+            mail.Display()
+            messagebox.showinfo("Borrador creado", "Outlook se abrió con el archivo de Avanza Fit adjunto.")
+        except Exception as e:
+            messagebox.showerror(
+                "Error con Outlook",
+                f"No se pudo crear el correo en Outlook. Adjunta manualmente el archivo:\n{tmp_path}\n\nDetalle: {e}"
+            )
 
 
 if __name__ == "__main__":
