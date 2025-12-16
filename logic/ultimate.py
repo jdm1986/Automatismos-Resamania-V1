@@ -96,3 +96,40 @@ def obtener_socios_ultimate():
 
     df_filtrado = df_filtrado.drop_duplicates(subset=[col_cliente])
     return df_filtrado.reset_index(drop=True)
+
+
+def obtener_socios_yanga():
+    """
+    Igual que Ultimate, pero buscando productos que contengan 'YANGA' (incluye renovaciones).
+    """
+    with open("config.json", "r") as f:
+        config = json.load(f)
+    carpeta_datos = config.get("carpeta_datos", "")
+
+    try:
+        ruta_facturas = _find_facturas_file(carpeta_datos)
+        df_raw = _leer_facturas_sin_cabecera(ruta_facturas)
+    except FileNotFoundError:
+        return pd.DataFrame(columns=["Numero de cliente", "Nombre", "Apellidos"])
+
+    headers, df = _detectar_cabeceras(df_raw)
+    if headers is None:
+        return pd.DataFrame(columns=["Numero de cliente", "Nombre", "Apellidos"])
+
+    columnas_norm = {_normalize(col): col for col in df.columns}
+    col_producto = columnas_norm.get("NOMBRE DEL PRODUCTO")
+    col_cliente = columnas_norm.get("NUMERO DE CLIENTE")
+
+    if not col_producto or not col_cliente:
+        return pd.DataFrame(columns=["Numero de cliente", "Nombre", "Apellidos"])
+
+    df[col_cliente] = df[col_cliente].fillna("").astype(str).str.strip()
+    productos_norm = df[col_producto].apply(_normalize)
+
+    df_filtrado = df[
+        (df[col_cliente] != "")
+        & productos_norm.str.contains("YANGA", na=False)
+    ].copy()
+
+    df_filtrado = df_filtrado.drop_duplicates(subset=[col_cliente])
+    return df_filtrado.reset_index(drop=True)

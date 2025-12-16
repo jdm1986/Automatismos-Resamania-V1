@@ -13,7 +13,7 @@ from datetime import datetime
 from logic.wizville import procesar_wizville
 from logic.accesos import procesar_accesos_dobles, procesar_accesos_descuadrados, procesar_salidas_pmr_no_autorizadas, \
     procesar_morosos_accediendo
-from logic.ultimate import obtener_socios_ultimate
+from logic.ultimate import obtener_socios_ultimate, obtener_socios_yanga
 from logic.avanza_fit import obtener_avanza_fit
 from logic.cumpleanos import obtener_cumpleanos_hoy
 from utils.file_loader import load_data_file
@@ -58,6 +58,7 @@ class ResamaniaApp(tk.Tk):
         self.state('zoomed')  # Pantalla completa al arrancar
         self.folder_path = get_default_folder()
         self.dataframes = {}
+        self.raw_accesos = None
 
         self.create_widgets()
         if self.folder_path:
@@ -93,8 +94,11 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Actualizar datos", command=self.load_data).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="DÍA ASUNTOS PROPIOS", command=self.enviar_asuntos_propios, fg="#0066cc").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="SOLICITUD DE CAMBIO DE TURNO", command=self.enviar_cambio_turno, fg="#0066cc").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="ENVIAR FELICITACIÓN", command=self.enviar_felicitacion, fg="#b30000").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="ENVÍO MARTES AVANZA FIT", command=self.enviar_avanza_fit, fg="#b30000").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="EXTRAER ACCESOS", command=self.extraer_accesos, fg="#0066cc").pack(side=tk.LEFT, padx=10)
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(expand=1, fill='both')
@@ -102,8 +106,8 @@ class ResamaniaApp(tk.Tk):
         self.tabs = {}
         for tab_name in [
             "Wizville", "Accesos Dobles", "Accesos Descuadrados",
-            "Salidas PMR No Autorizadas", "Morosos Accediendo", "Socios Ultimate",
-            "Avanza Fit", "Cumpleaños"
+            "Salidas PMR No Autorizadas", "Morosos Accediendo", "Socios Ultimate", "Socios Yanga",
+            "Avanza Fit", "Cumpleaños", "Accesos Cliente"
         ]:
             tab = ttk.Frame(self.notebook)
             self.notebook.add(tab, text=tab_name)
@@ -164,6 +168,7 @@ class ResamaniaApp(tk.Tk):
         try:
             resumen = load_data_file(self.folder_path, "RESUMEN CLIENTE")
             accesos = load_data_file(self.folder_path, "ACCESOS")
+            self.raw_accesos = accesos.copy()
             incidencias = load_data_file(self.folder_path, "IMPAGOS")
 
             self.mostrar_en_tabla("Wizville", procesar_wizville(resumen, accesos))
@@ -172,6 +177,7 @@ class ResamaniaApp(tk.Tk):
             self.mostrar_en_tabla("Salidas PMR No Autorizadas", procesar_salidas_pmr_no_autorizadas(resumen, accesos))
             self.mostrar_en_tabla("Morosos Accediendo", procesar_morosos_accediendo(incidencias, accesos), color="#F4CCCC")
             self.mostrar_en_tabla("Socios Ultimate", obtener_socios_ultimate())
+            self.mostrar_en_tabla("Socios Yanga", obtener_socios_yanga())
             self.mostrar_en_tabla("Avanza Fit", obtener_avanza_fit())
             self.mostrar_en_tabla("Cumpleaños", obtener_cumpleanos_hoy())
 
@@ -247,6 +253,142 @@ class ResamaniaApp(tk.Tk):
                 messagebox.showinfo("Exito", f"Datos exportados correctamente a:\n{archivo}")
         except Exception as e:
             messagebox.showerror("Error al exportar", str(e))
+
+    def enviar_asuntos_propios(self):
+        """
+        Abre Outlook con un borrador dirigido al manager para solicitar día de asuntos propios.
+        """
+        destinatario = "manager.sevilla-manueldevillalobos@fitnesspark.es"
+        asunto = "Petición de Día de Asuntos Propios"
+        cuerpo = (
+            "En Sevilla, a __ / __ / 20__\n"
+            "Yo, _______________________, con DNI, miembro del equipo\n"
+            "del club Fitness Park Sevilla - Villalobos, presento la siguiente solicitud:\n\n"
+            "Objeto de la petición\n"
+            "Solicito autorización para disfrutar de un día de asuntos propios, conforme a las condiciones establecidas en mi\n"
+            "contrato y en el protocolo interno del club.\n"
+            "Fecha solicitada: ____ / ____ / 20___\n"
+            "Turno habitual en dicha fecha: [ ] Mañana [ ] Tarde [ ] Noche\n"
+            "Declaración del trabajador/a\n"
+            "Declaro que:\n"
+            "- Esta solicitud se realiza con la antelación mínima exigida por la organización.\n"
+            "- Entiendo que los días de asuntos propios deben disfrutarse en días laborables y siempre respetando la\n"
+            "cobertura del servicio.\n"
+            "- Acepto que la concesión del día queda sujeta a aprobación por parte de la Dirección del club,\n"
+            "garantizando que no se vea afectada la operativa ni el equilibrio de turnos del equipo."
+        )
+
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            self.clipboard_clear()
+            self.clipboard_append(cuerpo)
+            messagebox.showwarning(
+                "Outlook no disponible",
+                f"No se pudo importar win32com.client.\n"
+                f"Cuerpo copiado al portapapeles. Envía un correo a {destinatario} con asunto:\n{asunto}"
+            )
+            return
+
+        def try_outlook():
+            outlook_app = win32com.client.Dispatch("Outlook.Application")
+            try:
+                ns = outlook_app.GetNamespace("MAPI")
+                ns.Logon("", "", False, False)
+            except Exception:
+                pass
+            return outlook_app
+
+        try:
+            try:
+                outlook = try_outlook()
+            except Exception:
+                os.startfile("outlook.exe")
+                time.sleep(3)
+                outlook = try_outlook()
+
+            mail = outlook.CreateItem(0)
+            mail.To = destinatario
+            mail.Subject = asunto
+            mail.Body = cuerpo
+            mail.Display()
+            messagebox.showinfo(
+                "Borrador creado",
+                f"Outlook se abrió con el correo dirigido a {destinatario}."
+            )
+        except Exception as e:
+            self.clipboard_clear()
+            self.clipboard_append(cuerpo)
+            messagebox.showerror(
+                "Error con Outlook",
+                f"No se pudo crear el correo en Outlook.\n"
+                f"Cuerpo copiado al portapapeles para pegarlo manualmente.\n\nDetalle: {e}"
+            )
+
+    def enviar_cambio_turno(self):
+        """
+        Abre Outlook con un borrador para solicitud de cambio de turno (sin PIN).
+        """
+        destinatario = "manager.sevilla-manueldevillalobos@fitnesspark.es"
+        asunto = "Solicitud Cambio de turno"
+        cuerpo = (
+            "PETICIÓN VOLUNTARIA DE LOS SOLICITANTES QUE EN TODO MOMENTO Y BAJO SU RESPONSABILIDAD "
+            "PROPORCIONARÁ LA COBERTURA NECESARIA PARA QUE LAS NECESIDADES DEL CLUB ESTÉN CUBIERTAS. "
+            "REQUIERE DE APROBACIÓN POR PARTE DEL DIRECTOR DEL CLUB.\n\n"
+            "STAFF 1 QUE SOLICITA EL CAMBIO*\n"
+            "NOMBRE Y APELLIDOS\n\n"
+            "STAFF 2 QUE ACEPTA EL CAMBIO*\n"
+            "NOMBRE Y APELLIDOS\n\n\n"
+            "DESCRIBIR A CONTINUACIÓN CAMBIO ESPECIFICANDO FECHAS Y TURNOS. "
+            "RECUERDA QUE DEBEN SER CAMBIOS CERRADOS, SIN QUE QUEDE NADA EN EL AIRE:"
+        )
+
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            self.clipboard_clear()
+            self.clipboard_append(cuerpo)
+            messagebox.showwarning(
+                "Outlook no disponible",
+                f"No se pudo importar win32com.client.\n"
+                f"Cuerpo copiado al portapapeles. Envía un correo a {destinatario} con asunto:\n{asunto}"
+            )
+            return
+
+        def try_outlook():
+            outlook_app = win32com.client.Dispatch("Outlook.Application")
+            try:
+                ns = outlook_app.GetNamespace("MAPI")
+                ns.Logon("", "", False, False)
+            except Exception:
+                pass
+            return outlook_app
+
+        try:
+            try:
+                outlook = try_outlook()
+            except Exception:
+                os.startfile("outlook.exe")
+                time.sleep(3)
+                outlook = try_outlook()
+
+            mail = outlook.CreateItem(0)
+            mail.To = destinatario
+            mail.Subject = asunto
+            mail.Body = cuerpo
+            mail.Display()
+            messagebox.showinfo(
+                "Borrador creado",
+                f"Outlook se abrió con el correo dirigido a {destinatario}."
+            )
+        except Exception as e:
+            self.clipboard_clear()
+            self.clipboard_append(cuerpo)
+            messagebox.showerror(
+                "Error con Outlook",
+                f"No se pudo crear el correo en Outlook.\n"
+                f"Cuerpo copiado al portapapeles para pegarlo manualmente.\n\nDetalle: {e}"
+            )
 
     def enviar_felicitacion(self):
         """
@@ -355,6 +497,69 @@ class ResamaniaApp(tk.Tk):
                 "Error con Outlook",
                 f"No se pudo crear el correo en Outlook.\nSe copiaron los correos al portapapeles para pegarlos en BCC.\n\nDetalle: {e}"
             )
+
+    def extraer_accesos(self):
+        """
+        Pide PIN y numero de cliente, filtra ACCESOS.csv y muestra resultado en pestaña 'Accesos Cliente'.
+        """
+        if self.raw_accesos is None:
+            messagebox.showwarning("Sin datos", "Primero carga datos (Actualizar datos) para tener ACCESOS.")
+            return
+
+        # Trae la ventana al frente para que los dialogs tomen foco
+        try:
+            self.lift()
+            self.focus_force()
+        except Exception:
+            pass
+
+        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
+        if pin is None:
+            return
+        if pin.strip() != get_security_code():
+            messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
+            return
+
+        numero = simpledialog.askstring("Número de cliente", "Introduce el número de cliente:")
+        if numero is None:
+            return
+        numero = numero.strip()
+        if not numero:
+            messagebox.showwarning("Sin número", "No se ingresó un número de cliente.")
+            return
+
+        def normalize(text):
+            t = unicodedata.normalize("NFD", str(text or "")).upper().strip()
+            return "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
+
+        df = self.raw_accesos
+        colmap = {normalize(col): col for col in df.columns}
+        col_cliente = colmap.get("NUMERO DE CLIENTE") or colmap.get("NÚMERO DE CLIENTE") or colmap.get("NカMERO DE CLIENTE")
+
+        if not col_cliente:
+            messagebox.showerror("Columna faltante", "No se encontró la columna 'Número de cliente' en ACCESOS.")
+            return
+
+        df_filtrado = df[df[col_cliente].astype(str).str.strip() == numero].copy()
+
+        if df_filtrado.empty:
+            messagebox.showinfo("Sin resultados", f"No hay accesos para el número de cliente: {numero}")
+        else:
+            self.mostrar_en_tabla("Accesos Cliente", df_filtrado)
+            # Ofrecer guardado inmediato
+            try:
+                archivo = filedialog.asksaveasfilename(
+                    defaultextension=".xlsx",
+                    filetypes=[("Excel files", "*.xlsx")],
+                    initialfile=f"accesos_{numero}.xlsx"
+                )
+                if archivo:
+                    df_filtrado.to_excel(archivo, index=False)
+                    messagebox.showinfo("Accesos filtrados", f"Se encontraron {len(df_filtrado)} accesos para el cliente {numero}.\nGuardado en:\n{archivo}")
+                else:
+                    messagebox.showinfo("Accesos filtrados", f"Se encontraron {len(df_filtrado)} accesos para el cliente {numero}.")
+            except Exception as e:
+                messagebox.showerror("Error al guardar", f"Se filtraron {len(df_filtrado)} accesos pero falló el guardado:\n{e}")
 
     def enviar_avanza_fit(self):
         """
