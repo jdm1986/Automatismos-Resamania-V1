@@ -10,6 +10,8 @@ import time
 import uuid
 import tempfile
 from datetime import datetime
+import urllib.parse
+import webbrowser
 from logic.wizville import procesar_wizville
 from logic.accesos import procesar_accesos_dobles, procesar_accesos_descuadrados, procesar_salidas_pmr_no_autorizadas, \
     procesar_morosos_accediendo
@@ -59,8 +61,14 @@ class ResamaniaApp(tk.Tk):
         self.folder_path = get_default_folder()
         self.dataframes = {}
         self.raw_accesos = None
+        self.resumen_df = None
+
+        # Datos de prestamos
+        self.prestamos_file = os.path.join("data", "prestamos.json")
+        self.prestamos = []
 
         self.create_widgets()
+        self.cargar_prestamos_json()
         if self.folder_path:
             self.load_data()
 
@@ -107,12 +115,15 @@ class ResamaniaApp(tk.Tk):
         for tab_name in [
             "Wizville", "Accesos Dobles", "Accesos Descuadrados",
             "Salidas PMR No Autorizadas", "Morosos Accediendo", "Socios Ultimate", "Socios Yanga",
-            "Avanza Fit", "Cumpleaños", "Accesos Cliente"
+            "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos"
         ]:
             tab = ttk.Frame(self.notebook)
             self.notebook.add(tab, text=tab_name)
             self.tabs[tab_name] = tab
-            self.create_table(tab)
+            if tab_name == "Prestamos":
+                self.create_prestamos_tab(tab)
+            else:
+                self.create_table(tab)
 
     def create_table(self, tab):
         tree = ttk.Treeview(tab, show="headings")
@@ -167,6 +178,7 @@ class ResamaniaApp(tk.Tk):
 
         try:
             resumen = load_data_file(self.folder_path, "RESUMEN CLIENTE")
+            self.resumen_df = resumen.copy()
             accesos = load_data_file(self.folder_path, "ACCESOS")
             self.raw_accesos = accesos.copy()
             incidencias = load_data_file(self.folder_path, "IMPAGOS")
@@ -220,6 +232,199 @@ class ResamaniaApp(tk.Tk):
         for index, (_, k) in enumerate(datos):
             tree.move(k, '', index)
         tree.heading(col, command=lambda: self.sort_column(tree, col, not reverse))
+
+    # -----------------------------
+    # PESTAÑA PRÉSTAMOS
+    # -----------------------------
+    def create_prestamos_tab(self, tab):
+        frm = tk.Frame(tab)
+        frm.pack(fill="both", expand=True, padx=10, pady=10)
+
+        top = tk.Frame(frm)
+        top.pack(fill="x", pady=4)
+        tk.Label(top, text="Numero de cliente:").pack(side="left")
+        self.prestamo_codigo = tk.Entry(top, width=14)
+        self.prestamo_codigo.pack(side="left", padx=5)
+        tk.Button(top, text="Buscar", command=self.buscar_cliente_prestamo).pack(side="left", padx=5)
+        self.lbl_info = tk.Label(top, text="", anchor="w")
+        self.lbl_info.pack(side="left", padx=10)
+
+        mid = tk.Frame(frm)
+        mid.pack(fill="x", pady=6)
+        tk.Label(mid, text="Material prestado:").pack(side="left")
+        self.prestamo_material = tk.Entry(mid, width=40)
+        self.prestamo_material.pack(side="left", padx=5)
+        tk.Button(mid, text="Guardar prestamo", command=self.guardar_prestamo).pack(side="left", padx=5)
+        tk.Button(mid, text="Marcar devuelto", command=self.marcar_devuelto).pack(side="left", padx=5)
+        tk.Button(mid, text="Enviar aviso email", command=self.enviar_aviso_prestamo).pack(side="left", padx=5)
+        tk.Button(mid, text="WhatsApp", command=self.abrir_whatsapp_prestamo).pack(side="left", padx=5)
+
+        cols = ["codigo", "nombre", "apellidos", "email", "movil", "material", "fecha", "devuelto"]
+        tree = ttk.Treeview(frm, columns=cols, show="headings")
+        for c in cols:
+            tree.heading(c, text=c.capitalize())
+            tree.column(c, anchor="center")
+        tree.pack(fill="both", expand=True)
+        self.tree_prestamos = tree
+        tab.tree = tree
+
+    def _norm(self, text):
+        t = unicodedata.normalize("NFD", str(text or "")).upper().strip()
+        return "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
+
+    def buscar_cliente_prestamo(self):
+        if self.resumen_df is None:
+            messagebox.showwarning("Sin datos", "Carga primero RESUMEN CLIENTE.")
+            return
+        codigo = self.prestamo_codigo.get().strip()
+        if not codigo:
+            messagebox.showwarning("Sin numero", "Introduce el numero de cliente.")
+            return
+
+        colmap = {self._norm(c): c for c in self.resumen_df.columns}
+        col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
+        col_nom = colmap.get("NOMBRE")
+        col_ape = colmap.get("APELLIDOS")
+        col_mail = colmap.get("CORREO ELECTRONICO") or colmap.get("EMAIL") or colmap.get("CORREO")
+        col_movil = colmap.get("MOVIL") or colmap.get("TELEFONO MOVIL") or colmap.get("NUMERO DE TELEFONO")
+
+        if not col_codigo:
+            messagebox.showerror("Columna faltante", "No se encontro la columna de numero de cliente.")
+            return
+
+        fila = self.resumen_df[self.resumen_df[col_codigo].astype(str).str.strip() == codigo]
+        if fila.empty:
+            messagebox.showinfo("Sin resultados", f"No hay cliente {codigo}")
+            return
+
+        row = fila.iloc[0]
+        self.prestamo_encontrado = {
+            "codigo": codigo,
+            "nombre": row.get(col_nom, ""),
+            "apellidos": row.get(col_ape, ""),
+            "email": row.get(col_mail, ""),
+            "movil": str(row.get(col_movil, "")).strip()
+        }
+        self.lbl_info.config(text=f"{row.get(col_nom,'')} {row.get(col_ape,'')} | {row.get(col_mail,'')} | {row.get(col_movil,'')}")
+
+    def guardar_prestamo(self):
+        if not getattr(self, "prestamo_encontrado", None):
+            messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
+            return
+        material = self.prestamo_material.get().strip()
+        if not material:
+            messagebox.showwarning("Sin material", "Escribe el material prestado.")
+            return
+
+        prestamo = {
+            **self.prestamo_encontrado,
+            "material": material,
+            "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "devuelto": False
+        }
+
+        # Evita duplicado abierto por mismo codigo
+        self.prestamos = [p for p in self.prestamos if not (p["codigo"] == prestamo["codigo"] and not p["devuelto"])]
+        self.prestamos.append(prestamo)
+        self.guardar_prestamos_json()
+        self.refrescar_prestamos_tree()
+        self.prestamo_material.delete(0, tk.END)
+        messagebox.showinfo("Guardado", "Prestamo registrado.")
+
+    def marcar_devuelto(self):
+        sel = self.tree_prestamos.selection()
+        if not sel:
+            messagebox.showwarning("Sin seleccion", "Selecciona un prestamo.")
+            return
+        codigo = self.tree_prestamos.item(sel[0])["values"][0]
+        for p in self.prestamos:
+            if p["codigo"] == codigo and not p["devuelto"]:
+                p["devuelto"] = True
+                break
+        self.guardar_prestamos_json()
+        self.refrescar_prestamos_tree()
+
+    def enviar_aviso_prestamo(self):
+        sel = self.tree_prestamos.selection()
+        if not sel:
+            messagebox.showwarning("Sin seleccion", "Selecciona un prestamo.")
+            return
+        datos = self.tree_prestamos.item(sel[0])["values"]
+        email = datos[3]
+        nombre = datos[1]
+        material = datos[5]
+
+        cuerpo = (
+            "Advertencia 1 - Material de prestamo no devuelto\n\n"
+            f"Hola {nombre},\n\n"
+            f"No has devuelto el material prestado ({material}). "
+            "En caso de que vuelva a ocurrir, no podremos ofrecer este servicio. Gracias por colaborar."
+        )
+
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            self.clipboard_clear()
+            self.clipboard_append(cuerpo)
+            messagebox.showwarning("Outlook no disponible", "Cuerpo copiado al portapapeles.")
+            return
+
+        try:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            mail = outlook.CreateItem(0)
+            mail.To = email
+            mail.Subject = "Aviso material prestamo"
+            mail.Body = cuerpo
+            mail.Display()
+        except Exception as e:
+            self.clipboard_clear()
+            self.clipboard_append(cuerpo)
+            messagebox.showerror("Error con Outlook", f"No se pudo crear el correo.\nDetalle: {e}")
+
+    def abrir_whatsapp_prestamo(self):
+        sel = self.tree_prestamos.selection()
+        if not sel:
+            messagebox.showwarning("Sin seleccion", "Selecciona un prestamo.")
+            return
+        datos = self.tree_prestamos.item(sel[0])["values"]
+        movil = str(datos[4]).replace(" ", "")
+        if not movil:
+            messagebox.showwarning("Sin movil", "El cliente no tiene movil registrado.")
+            return
+        texto = f"No has devuelto el material prestado ({datos[5]}). Por favor devuelvelo en recepcion. Gracias."
+        try:
+            url = f"https://wa.me/{movil}?text={urllib.parse.quote(texto)}"
+            webbrowser.open(url)
+        except Exception as e:
+            messagebox.showerror("WhatsApp", f"No se pudo abrir el enlace: {e}")
+
+    def cargar_prestamos_json(self):
+        try:
+            if os.path.exists(self.prestamos_file):
+                with open(self.prestamos_file, "r", encoding="utf-8") as f:
+                    self.prestamos = json.load(f)
+        except Exception:
+            self.prestamos = []
+        self.refrescar_prestamos_tree()
+
+    def guardar_prestamos_json(self):
+        try:
+            os.makedirs(os.path.dirname(self.prestamos_file), exist_ok=True)
+            with open(self.prestamos_file, "w", encoding="utf-8") as f:
+                json.dump(self.prestamos, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass  # silencioso para no romper UI
+
+    def refrescar_prestamos_tree(self):
+        if not hasattr(self, "tree_prestamos"):
+            return
+        self.tree_prestamos.delete(*self.tree_prestamos.get_children())
+        for p in self.prestamos:
+            self.tree_prestamos.insert("", "end", values=[
+                p.get("codigo", ""), p.get("nombre", ""), p.get("apellidos", ""),
+                p.get("email", ""), p.get("movil", ""), p.get("material", ""),
+                p.get("fecha", ""), "SI" if p.get("devuelto") else "NO"
+            ])
 
     def exportar_excel(self):
         try:
