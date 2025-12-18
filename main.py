@@ -107,9 +107,25 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="ENVIAR FELICITACIÓN", command=self.enviar_felicitacion, fg="#b30000").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="ENVÍO MARTES AVANZA FIT", command=self.enviar_avanza_fit, fg="#b30000").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="EXTRAER ACCESOS", command=self.extraer_accesos, fg="#0066cc").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="IR A PRÉSTAMOS", command=lambda: self.notebook.select(self.tabs.get("Prestamos")), bg="#ff9800", fg="black").pack(side=tk.LEFT, padx=10)
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(expand=1, fill='both')
+
+        tab_colors = {
+            "Wizville": "#6fa8dc",
+            "Accesos Dobles": "#b4a7d6",
+            "Accesos Descuadrados": "#8e7cc3",
+            "Salidas PMR No Autorizadas": "#c27ba0",
+            "Morosos Accediendo": "#e06666",
+            "Socios Ultimate": "#76a5af",
+            "Socios Yanga": "#93c47d",
+            "Avanza Fit": "#ffd966",
+            "Cumpleaños": "#f9cb9c",
+            "Accesos Cliente": "#cfe2f3",
+            "Prestamos": "#ffb74d",
+        }
+        self.tab_icons = {}
 
         self.tabs = {}
         for tab_name in [
@@ -118,7 +134,11 @@ class ResamaniaApp(tk.Tk):
             "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos"
         ]:
             tab = ttk.Frame(self.notebook)
-            self.notebook.add(tab, text=tab_name)
+            color = tab_colors.get(tab_name, "#cccccc")
+            icon = tk.PhotoImage(width=14, height=14)
+            icon.put(color, to=(0, 0, 14, 14))
+            self.tab_icons[tab_name] = icon
+            self.notebook.add(tab, text=tab_name, image=icon, compound="left")
             self.tabs[tab_name] = tab
             if tab_name == "Prestamos":
                 self.create_prestamos_tab(tab)
@@ -255,7 +275,7 @@ class ResamaniaApp(tk.Tk):
         self.prestamo_material = tk.Entry(mid, width=40)
         self.prestamo_material.pack(side="left", padx=5)
         tk.Button(mid, text="Guardar prestamo", command=self.guardar_prestamo).pack(side="left", padx=5)
-        tk.Button(mid, text="Marcar devuelto", command=self.marcar_devuelto).pack(side="left", padx=5)
+        tk.Button(mid, text="CHECK DEVUELTO", command=self.marcar_devuelto).pack(side="left", padx=5)
         tk.Button(mid, text="Enviar aviso email", command=self.enviar_aviso_prestamo).pack(side="left", padx=5)
         tk.Button(mid, text="WhatsApp", command=self.abrir_whatsapp_prestamo).pack(side="left", padx=5)
 
@@ -265,6 +285,8 @@ class ResamaniaApp(tk.Tk):
             tree.heading(c, text=c.capitalize())
             tree.column(c, anchor="center")
         tree.pack(fill="both", expand=True)
+        tree.tag_configure("naranja", background="#ffe6cc")
+        tree.tag_configure("verde", background="#d4edda")
         self.tree_prestamos = tree
         tab.tree = tree
 
@@ -305,7 +327,16 @@ class ResamaniaApp(tk.Tk):
             "email": row.get(col_mail, ""),
             "movil": str(row.get(col_movil, "")).strip()
         }
-        self.lbl_info.config(text=f"{row.get(col_nom,'')} {row.get(col_ape,'')} | {row.get(col_mail,'')} | {row.get(col_movil,'')}")
+        info_text = f"{row.get(col_nom,'')} {row.get(col_ape,'')} | {row.get(col_mail,'')} | {row.get(col_movil,'')}"
+
+        # Aviso si tiene prestamos pendientes sin devolver
+        pendientes = [p for p in self.prestamos if p.get("codigo") == codigo and not p.get("devuelto")]
+        if pendientes:
+            materiales = ", ".join(p.get("material", "") for p in pendientes if p.get("material"))
+            info_text += f" | Pendiente: {materiales or 'material sin devolver'}"
+            messagebox.showwarning("Material pendiente", f"El cliente {codigo} tiene material sin devolver: {materiales}")
+
+        self.lbl_info.config(text=info_text)
 
     def guardar_prestamo(self):
         if not getattr(self, "prestamo_encontrado", None):
@@ -340,6 +371,9 @@ class ResamaniaApp(tk.Tk):
         for p in self.prestamos:
             if p["codigo"] == codigo and not p["devuelto"]:
                 p["devuelto"] = True
+                break
+            if p["codigo"] == codigo and p["devuelto"]:
+                p["devuelto"] = False
                 break
         self.guardar_prestamos_json()
         self.refrescar_prestamos_tree()
@@ -420,11 +454,12 @@ class ResamaniaApp(tk.Tk):
             return
         self.tree_prestamos.delete(*self.tree_prestamos.get_children())
         for p in self.prestamos:
+            tag = "verde" if p.get("devuelto") else "naranja"
             self.tree_prestamos.insert("", "end", values=[
                 p.get("codigo", ""), p.get("nombre", ""), p.get("apellidos", ""),
                 p.get("email", ""), p.get("movil", ""), p.get("material", ""),
                 p.get("fecha", ""), "SI" if p.get("devuelto") else "NO"
-            ])
+            ], tags=(tag,))
 
     def exportar_excel(self):
         try:
