@@ -66,8 +66,11 @@ class ResamaniaApp(tk.Tk):
         # Datos de prestamos
         self.prestamos_file = os.path.join("data", "prestamos.json")
         self.prestamos = []
+        self.clientes_ext_file = os.path.join("data", "clientes_ext.json")
+        self.clientes_ext = []
 
         self.create_widgets()
+        self.cargar_clientes_ext()
         self.cargar_prestamos_json()
         if self.folder_path:
             self.load_data()
@@ -295,41 +298,67 @@ class ResamaniaApp(tk.Tk):
         return "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
 
     def buscar_cliente_prestamo(self):
-        if self.resumen_df is None:
-            messagebox.showwarning("Sin datos", "Carga primero RESUMEN CLIENTE.")
-            return
         codigo = self.prestamo_codigo.get().strip()
         if not codigo:
             messagebox.showwarning("Sin numero", "Introduce el numero de cliente.")
             return
 
-        colmap = {self._norm(c): c for c in self.resumen_df.columns}
-        col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
-        col_nom = colmap.get("NOMBRE")
-        col_ape = colmap.get("APELLIDOS")
-        col_mail = colmap.get("CORREO ELECTRONICO") or colmap.get("EMAIL") or colmap.get("CORREO")
-        col_movil = colmap.get("MOVIL") or colmap.get("TELEFONO MOVIL") or colmap.get("NUMERO DE TELEFONO")
+        cliente = None
+        fila = None
 
-        if not col_codigo:
-            messagebox.showerror("Columna faltante", "No se encontro la columna de numero de cliente.")
+        if self.resumen_df is not None:
+            colmap = {self._norm(c): c for c in self.resumen_df.columns}
+            col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
+            col_nom = colmap.get("NOMBRE")
+            col_ape = colmap.get("APELLIDOS")
+            col_mail = colmap.get("CORREO ELECTRONICO") or colmap.get("EMAIL") or colmap.get("CORREO")
+            col_movil = colmap.get("MOVIL") or colmap.get("TELEFONO MOVIL") or colmap.get("NUMERO DE TELEFONO")
+
+            if col_codigo:
+                fila = self.resumen_df[self.resumen_df[col_codigo].astype(str).str.strip() == codigo]
+                if not fila.empty:
+                    row = fila.iloc[0]
+                    cliente = {
+                        "codigo": codigo,
+                        "nombre": row.get(col_nom, ""),
+                        "apellidos": row.get(col_ape, ""),
+                        "email": row.get(col_mail, ""),
+                        "movil": str(row.get(col_movil, "")).strip()
+                    }
+            else:
+                messagebox.showwarning("Columna faltante", "No se encontro la columna de numero de cliente.")
+
+        # Si no se encontró en resumen, buscar/crear manual
+        if not cliente:
+            ext = [c for c in self.clientes_ext if c.get("codigo") == codigo]
+            if ext:
+                cliente = ext[0]
+            else:
+                if not messagebox.askyesno("Cliente no encontrado", f"No hay cliente {codigo}. ¿Registrar manualmente?"):
+                    return
+                nombre = simpledialog.askstring("Nombre", "Introduce el nombre:")
+                apellidos = simpledialog.askstring("Apellidos", "Introduce los apellidos:")
+                email = simpledialog.askstring("Email", "Introduce el email:")
+                movil = simpledialog.askstring("Movil", "Introduce el movil (opcional):") or ""
+                if not nombre or not apellidos or not email:
+                    messagebox.showwarning("Datos incompletos", "Nombre, apellidos y email son obligatorios.")
+                    return
+                cliente = {
+                    "codigo": codigo,
+                    "nombre": nombre.strip(),
+                    "apellidos": apellidos.strip(),
+                    "email": email.strip(),
+                    "movil": movil.strip(),
+                }
+                self.clientes_ext = [c for c in self.clientes_ext if c.get("codigo") != codigo] + [cliente]
+                self.guardar_clientes_ext()
+
+        if not cliente:
             return
 
-        fila = self.resumen_df[self.resumen_df[col_codigo].astype(str).str.strip() == codigo]
-        if fila.empty:
-            messagebox.showinfo("Sin resultados", f"No hay cliente {codigo}")
-            return
+        self.prestamo_encontrado = cliente
+        info_text = f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}"
 
-        row = fila.iloc[0]
-        self.prestamo_encontrado = {
-            "codigo": codigo,
-            "nombre": row.get(col_nom, ""),
-            "apellidos": row.get(col_ape, ""),
-            "email": row.get(col_mail, ""),
-            "movil": str(row.get(col_movil, "")).strip()
-        }
-        info_text = f"{row.get(col_nom,'')} {row.get(col_ape,'')} | {row.get(col_mail,'')} | {row.get(col_movil,'')}"
-
-        # Aviso si tiene prestamos pendientes sin devolver
         pendientes = [p for p in self.prestamos if p.get("codigo") == codigo and not p.get("devuelto")]
         if pendientes:
             materiales = ", ".join(p.get("material", "") for p in pendientes if p.get("material"))
@@ -441,6 +470,14 @@ class ResamaniaApp(tk.Tk):
             self.prestamos = []
         self.refrescar_prestamos_tree()
 
+    def cargar_clientes_ext(self):
+        try:
+            if os.path.exists(self.clientes_ext_file):
+                with open(self.clientes_ext_file, "r", encoding="utf-8") as f:
+                    self.clientes_ext = json.load(f)
+        except Exception:
+            self.clientes_ext = []
+
     def guardar_prestamos_json(self):
         try:
             os.makedirs(os.path.dirname(self.prestamos_file), exist_ok=True)
@@ -448,6 +485,14 @@ class ResamaniaApp(tk.Tk):
                 json.dump(self.prestamos, f, ensure_ascii=False, indent=2)
         except Exception:
             pass  # silencioso para no romper UI
+
+    def guardar_clientes_ext(self):
+        try:
+            os.makedirs(os.path.dirname(self.clientes_ext_file), exist_ok=True)
+            with open(self.clientes_ext_file, "w", encoding="utf-8") as f:
+                json.dump(self.clientes_ext, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     def refrescar_prestamos_tree(self):
         if not hasattr(self, "tree_prestamos"):
