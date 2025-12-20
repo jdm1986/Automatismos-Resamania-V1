@@ -10,6 +10,7 @@ import time
 import uuid
 import tempfile
 from datetime import datetime
+import re
 import urllib.parse
 import webbrowser
 from logic.wizville import procesar_wizville
@@ -269,6 +270,8 @@ class ResamaniaApp(tk.Tk):
         self.prestamo_codigo = tk.Entry(top, width=14)
         self.prestamo_codigo.pack(side="left", padx=5)
         tk.Button(top, text="Buscar", command=self.buscar_cliente_prestamo).pack(side="left", padx=5)
+        tk.Button(top, text="Editar cliente manual", command=self.editar_cliente_manual).pack(side="left", padx=5)
+        tk.Button(top, text="AGREGAR CLIENTE DE OTRO FITNESS PARK", command=self.agregar_cliente_otro_fp, bg="#ff7043", fg="white").pack(side="left", padx=5)
         self.lbl_info = tk.Label(top, text="", anchor="w")
         self.lbl_info.pack(side="left", padx=10)
 
@@ -277,25 +280,74 @@ class ResamaniaApp(tk.Tk):
         tk.Label(mid, text="Material prestado:").pack(side="left")
         self.prestamo_material = tk.Entry(mid, width=40)
         self.prestamo_material.pack(side="left", padx=5)
-        tk.Button(mid, text="Guardar prestamo", command=self.guardar_prestamo).pack(side="left", padx=5)
-        tk.Button(mid, text="CHECK DEVUELTO", command=self.marcar_devuelto).pack(side="left", padx=5)
-        tk.Button(mid, text="Enviar aviso email", command=self.enviar_aviso_prestamo).pack(side="left", padx=5)
-        tk.Button(mid, text="WhatsApp", command=self.abrir_whatsapp_prestamo).pack(side="left", padx=5)
+        tk.Button(mid, text="Guardar prestamo", command=self.guardar_prestamo, bg="#ffd54f", fg="black").pack(side="left", padx=5)
+        tk.Button(mid, text="CHECK DEVUELTO", command=self.marcar_devuelto, bg="#8bc34a", fg="black").pack(side="left", padx=5)
+        tk.Button(mid, text="Enviar aviso email", command=self.enviar_aviso_prestamo, bg="#e53935", fg="white").pack(side="left", padx=5)
+        tk.Button(mid, text="Enviar aviso Whatsapp", command=self.abrir_whatsapp_prestamo, bg="#e53935", fg="white").pack(side="left", padx=5)
 
-        cols = ["codigo", "nombre", "apellidos", "email", "movil", "material", "fecha", "devuelto"]
+        self.lbl_perdon = tk.Label(frm, text="", fg="red", font=("", 10, "bold"))
+        self.lbl_perdon.pack(fill="x", padx=5, pady=2)
+
+        cols = ["codigo", "nombre", "apellidos", "email", "movil", "material", "fecha", "devuelto", "liberado_pin"]
         tree = ttk.Treeview(frm, columns=cols, show="headings")
         for c in cols:
-            tree.heading(c, text=c.capitalize())
+            heading = "Liberado por PIN" if c == "liberado_pin" else c.capitalize()
+            tree.heading(c, text=heading)
             tree.column(c, anchor="center")
         tree.pack(fill="both", expand=True)
         tree.tag_configure("naranja", background="#ffe6cc")
         tree.tag_configure("verde", background="#d4edda")
+        tree.bind("<Control-c>", lambda e: self.copiar_celda(e, tree))
+        menu = tk.Menu(tree, tearoff=0)
+        menu.add_command(label="Copiar", command=lambda: self.copiar_celda(tree.event_context, tree))
+        tree.bind("<Button-3>", lambda e: self.mostrar_menu(e, menu, tree))
         self.tree_prestamos = tree
         tab.tree = tree
 
     def _norm(self, text):
         t = unicodedata.normalize("NFD", str(text or "")).upper().strip()
         return "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
+
+    def _parse_fecha_prestamo(self, valor):
+        try:
+            return datetime.strptime(str(valor), "%d/%m/%Y %H:%M")
+        except Exception:
+            return None
+
+    def _bring_to_front(self):
+        try:
+            self.lift()
+            self.attributes("-topmost", True)
+            self.update()
+            self.attributes("-topmost", False)
+        except Exception:
+            pass
+
+    def _normalizar_movil(self, movil):
+        if not movil:
+            return ""
+        mov = "".join(ch for ch in str(movil) if ch.isdigit())
+        # Quita prefijo 34 si viene duplicado y re-aplica una sola vez
+        if mov.startswith("34"):
+            mov = mov[2:]
+        mov = mov.lstrip("0")
+        if mov:
+            mov = "34" + mov
+        return mov
+
+    def _pedir_campo(self, titulo, prompt, obligatorio=True, validar_nombre=False):
+        self._bring_to_front()
+        valor = simpledialog.askstring(titulo, prompt)
+        if valor is None:
+            return None
+        valor = valor.strip()
+        if obligatorio and not valor:
+            messagebox.showwarning("Dato requerido", prompt)
+            return self._pedir_campo(titulo, prompt, obligatorio, validar_nombre)
+        if validar_nombre and " " in valor.strip():
+            messagebox.showwarning("Formato nombre", "Solo nombre primero (una palabra).")
+            return self._pedir_campo(titulo, prompt, obligatorio, validar_nombre)
+        return valor
 
     def buscar_cliente_prestamo(self):
         codigo = self.prestamo_codigo.get().strip()
@@ -323,7 +375,7 @@ class ResamaniaApp(tk.Tk):
                         "nombre": row.get(col_nom, ""),
                         "apellidos": row.get(col_ape, ""),
                         "email": row.get(col_mail, ""),
-                        "movil": str(row.get(col_movil, "")).strip()
+                        "movil": self._normalizar_movil(row.get(col_movil, ""))
                     }
             else:
                 messagebox.showwarning("Columna faltante", "No se encontro la columna de numero de cliente.")
@@ -332,17 +384,22 @@ class ResamaniaApp(tk.Tk):
         if not cliente:
             ext = [c for c in self.clientes_ext if c.get("codigo") == codigo]
             if ext:
-                cliente = ext[0]
+                cliente = ext[0].copy()
+                cliente["movil"] = self._normalizar_movil(cliente.get("movil", ""))
             else:
                 if not messagebox.askyesno("Cliente no encontrado", f"No hay cliente {codigo}. ¿Registrar manualmente?"):
                     return
-                nombre = simpledialog.askstring("Nombre", "Introduce el nombre:")
-                apellidos = simpledialog.askstring("Apellidos", "Introduce los apellidos:")
-                email = simpledialog.askstring("Email", "Introduce el email:")
-                movil = simpledialog.askstring("Movil", "Introduce el movil (opcional):") or ""
-                if not nombre or not apellidos or not email:
-                    messagebox.showwarning("Datos incompletos", "Nombre, apellidos y email son obligatorios.")
+                nombre = self._pedir_campo("Nombre", "Introduce el nombre:", obligatorio=True, validar_nombre=True)
+                if nombre is None:
                     return
+                apellidos = self._pedir_campo("Apellidos", "Introduce los apellidos:")
+                if apellidos is None:
+                    return
+                email = self._pedir_campo("Email", "Introduce el email:")
+                if email is None:
+                    return
+                movil = self._pedir_campo("Movil", "Introduce el movil (opcional):", obligatorio=False) or ""
+                movil = self._normalizar_movil(movil)
                 cliente = {
                     "codigo": codigo,
                     "nombre": nombre.strip(),
@@ -358,14 +415,146 @@ class ResamaniaApp(tk.Tk):
 
         self.prestamo_encontrado = cliente
         info_text = f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}"
+        self.lbl_perdon.config(text="")
 
         pendientes = [p for p in self.prestamos if p.get("codigo") == codigo and not p.get("devuelto")]
         if pendientes:
             materiales = ", ".join(p.get("material", "") for p in pendientes if p.get("material"))
             info_text += f" | Pendiente: {materiales or 'material sin devolver'}"
             messagebox.showwarning("Material pendiente", f"El cliente {codigo} tiene material sin devolver: {materiales}")
+            if len(pendientes) >= 2:
+                self._resolver_pendientes_multples(pendientes, codigo)
+
+        # Aviso si fue liberado por PIN anteriormente
+        perdonado = any(p.get("codigo") == codigo and p.get("liberado_pin") for p in self.prestamos)
+        if perdonado:
+            self.lbl_perdon.config(text="ATENCIÓN, ESTE CLIENTE HA SIDO PERDONADO UNA VEZ")
 
         self.lbl_info.config(text=info_text)
+
+    def _resolver_pendientes_multples(self, pendientes, codigo):
+        self._bring_to_front()
+        # Pregunta si quiere marcar uno como devuelto
+        if not messagebox.askyesno(
+            "Pendientes multiples",
+            f"El cliente {codigo} tiene {len(pendientes)} préstamos sin devolver.\n¿Quieres marcar uno como devuelto ahora?"
+        ):
+            return
+
+        # Ventana de selección simple
+        win = tk.Toplevel(self)
+        win.title("Selecciona préstamo a marcar devuelto")
+        tk.Label(win, text="Selecciona el préstamo devuelto:").pack(padx=10, pady=5)
+        listbox = tk.Listbox(win, height=min(10, len(pendientes)), exportselection=False)
+        listbox.pack(fill="both", expand=True, padx=10, pady=5)
+
+        # Mapea índice a id
+        ids = []
+        for p in pendientes:
+            resumen = f"{p.get('fecha','')} | {p.get('material','')}"
+            listbox.insert(tk.END, resumen)
+            ids.append(p.get("id"))
+
+        def confirmar():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showwarning("Sin seleccion", "Elige un préstamo.")
+                return
+            idx = sel[0]
+            prestamo_id = ids[idx]
+            for p in self.prestamos:
+                if p.get("id") == prestamo_id:
+                    p["devuelto"] = True
+                    break
+            self.guardar_prestamos_json()
+            self.refrescar_prestamos_tree()
+            win.destroy()
+
+        tk.Button(win, text="Marcar devuelto", command=confirmar).pack(pady=5)
+        tk.Button(win, text="Cerrar", command=win.destroy).pack(pady=2)
+
+    def editar_cliente_manual(self):
+        """
+        Permite editar los datos de un cliente manual (solo los que viven en clientes_ext).
+        Requiere tener un cliente buscado y que exista en la base manual.
+        """
+        if not getattr(self, "prestamo_encontrado", None):
+            messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
+            return
+        codigo = self.prestamo_encontrado.get("codigo")
+        ext = [c for c in self.clientes_ext if c.get("codigo") == codigo]
+        if not ext:
+            messagebox.showwarning("No editable", "Este cliente proviene de RESUMEN CLIENTE y no se puede modificar.")
+            return
+        cliente = ext[0]
+        nombre = self._pedir_campo("Nombre", "Introduce el nombre:", obligatorio=True, validar_nombre=True)
+        if nombre is None:
+            return
+        apellidos = self._pedir_campo("Apellidos", "Introduce los apellidos:")
+        if apellidos is None:
+            return
+        email = self._pedir_campo("Email", "Introduce el email:")
+        if email is None:
+            return
+        movil = self._pedir_campo("Movil", "Introduce el movil (opcional):", obligatorio=False) or ""
+        movil = self._normalizar_movil(movil)
+
+        cliente.update({
+            "nombre": nombre.strip(),
+            "apellidos": apellidos.strip(),
+            "email": email.strip(),
+            "movil": movil.strip()
+        })
+        self.guardar_clientes_ext()
+        # Actualiza en memoria por si se sigue usando
+        self.prestamo_encontrado = cliente.copy()
+        self.lbl_info.config(text=f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}")
+        messagebox.showinfo("Actualizado", "Datos del cliente manual actualizados.")
+
+    def agregar_cliente_otro_fp(self):
+        """
+        Alta directa de cliente externo (otro fitness park) sin buscar primero.
+        """
+        self._bring_to_front()
+        codigo = self._pedir_campo("Numero de cliente", "Introduce el numero de cliente:")
+        if codigo is None or not codigo.strip():
+            return
+        codigo = codigo.strip()
+
+        # Si está en resumen, no permitir
+        if self.resumen_df is not None:
+            colmap = {self._norm(c): c for c in self.resumen_df.columns}
+            col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
+            if col_codigo:
+                if any(str(val).strip() == codigo for val in self.resumen_df[col_codigo].fillna("")):
+                    messagebox.showwarning("No permitido", "Este cliente ya existe en RESUMEN CLIENTE y no se puede agregar manualmente.")
+                    return
+
+        nombre = self._pedir_campo("Nombre", "Introduce el nombre:", obligatorio=True, validar_nombre=True)
+        if nombre is None:
+            return
+        apellidos = self._pedir_campo("Apellidos", "Introduce los apellidos:")
+        if apellidos is None:
+            return
+        email = self._pedir_campo("Email", "Introduce el email:")
+        if email is None:
+            return
+        movil = self._pedir_campo("Movil", "Introduce el movil (opcional):", obligatorio=False) or ""
+        movil = self._normalizar_movil(movil)
+
+        cliente = {
+            "codigo": codigo,
+            "nombre": nombre.strip(),
+            "apellidos": apellidos.strip(),
+            "email": email.strip(),
+            "movil": movil.strip(),
+        }
+        self.clientes_ext = [c for c in self.clientes_ext if c.get("codigo") != codigo] + [cliente]
+        self.guardar_clientes_ext()
+        self.prestamo_encontrado = cliente.copy()
+        self.lbl_info.config(text=f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}")
+        self.lbl_perdon.config(text="")
+        messagebox.showinfo("Cliente agregado", f"Cliente {codigo} añadido como externo.")
 
     def guardar_prestamo(self):
         if not getattr(self, "prestamo_encontrado", None):
@@ -375,20 +564,54 @@ class ResamaniaApp(tk.Tk):
         if not material:
             messagebox.showwarning("Sin material", "Escribe el material prestado.")
             return
+        # Evitar que peguen un número de cliente en el campo de material
+        if re.fullmatch(r"[cC]?\d+", material):
+            messagebox.showwarning(
+                "Material inválido",
+                "Has puesto un número de cliente en 'Material prestado'. Vuelve a intentarlo."
+            )
+            return
+
+        codigo = self.prestamo_encontrado.get("codigo")
+        pendientes = [p for p in self.prestamos if p.get("codigo") == codigo and not p.get("devuelto")]
+
+        # Bloqueo a partir de 2 pendientes
+        if len(pendientes) >= 2:
+            resp = messagebox.askyesno(
+                "Limite de prestamos",
+                f"El cliente {codigo} ya tiene {len(pendientes)} prestamos sin devolver.\n"
+                "¿Introducir código de seguridad para liberar y permitir otro préstamo?"
+            )
+            if not resp:
+                return
+            self._bring_to_front()
+            pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
+            if pin is None or pin.strip() != get_security_code():
+                messagebox.showerror("Código incorrecto", "No se liberaron los préstamos pendientes.")
+                return
+            for p in pendientes:
+                p["devuelto"] = True
+                p["liberado_pin"] = True
+            self.guardar_prestamos_json()
+            self.refrescar_prestamos_tree()
 
         prestamo = {
+            "id": uuid.uuid4().hex,
             **self.prestamo_encontrado,
             "material": material,
             "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
-            "devuelto": False
+            "devuelto": False,
+            "liberado_pin": False
         }
 
-        # Evita duplicado abierto por mismo codigo
-        self.prestamos = [p for p in self.prestamos if not (p["codigo"] == prestamo["codigo"] and not p["devuelto"])]
         self.prestamos.append(prestamo)
         self.guardar_prestamos_json()
         self.refrescar_prestamos_tree()
         self.prestamo_material.delete(0, tk.END)
+        self.prestamo_codigo.delete(0, tk.END)
+        self.prestamo_encontrado = None
+        self.lbl_info.config(text="")
+        self.lbl_perdon.config(text="")
         messagebox.showinfo("Guardado", "Prestamo registrado.")
 
     def marcar_devuelto(self):
@@ -396,14 +619,25 @@ class ResamaniaApp(tk.Tk):
         if not sel:
             messagebox.showwarning("Sin seleccion", "Selecciona un prestamo.")
             return
-        codigo = self.tree_prestamos.item(sel[0])["values"][0]
+        iid = sel[0]
+        seleccionado = None
         for p in self.prestamos:
-            if p["codigo"] == codigo and not p["devuelto"]:
-                p["devuelto"] = True
+            if p.get("id") == iid:
+                seleccionado = p
                 break
-            if p["codigo"] == codigo and p["devuelto"]:
-                p["devuelto"] = False
-                break
+        if not seleccionado:
+            vals = self.tree_prestamos.item(sel[0])["values"]
+            if len(vals) >= 7:
+                codigo_sel, material_sel, fecha_sel = vals[0], vals[5], vals[6]
+                for p in self.prestamos:
+                    if p.get("codigo") == codigo_sel and p.get("material") == material_sel and p.get("fecha") == fecha_sel:
+                        seleccionado = p
+                        break
+        if not seleccionado:
+            messagebox.showwarning("No encontrado", "No se pudo identificar el préstamo seleccionado.")
+            return
+        seleccionado["devuelto"] = not seleccionado.get("devuelto", False)
+        # Si se marcó manualmente, no tocar liberado_pin (permite conservar histórico)
         self.guardar_prestamos_json()
         self.refrescar_prestamos_tree()
 
@@ -454,7 +688,14 @@ class ResamaniaApp(tk.Tk):
         if not movil:
             messagebox.showwarning("Sin movil", "El cliente no tiene movil registrado.")
             return
-        texto = f"No has devuelto el material prestado ({datos[5]}). Por favor devuelvelo en recepcion. Gracias."
+        nombre = datos[1]
+        material = datos[5]
+        texto = (
+            "Advertencia 1 - Material de prestamo no devuelto\n\n"
+            f"Hola {nombre},\n\n"
+            f"No has devuelto el material prestado ({material}). "
+            "En caso de que vuelva a ocurrir, no podremos ofrecer este servicio. Gracias por colaborar."
+        )
         try:
             url = f"https://wa.me/{movil}?text={urllib.parse.quote(texto)}"
             webbrowser.open(url)
@@ -466,6 +707,17 @@ class ResamaniaApp(tk.Tk):
             if os.path.exists(self.prestamos_file):
                 with open(self.prestamos_file, "r", encoding="utf-8") as f:
                     self.prestamos = json.load(f)
+            # Asegura IDs para prestamos antiguos
+            changed = False
+            for p in self.prestamos:
+                if "id" not in p:
+                    p["id"] = uuid.uuid4().hex
+                    changed = True
+                if "liberado_pin" not in p:
+                    p["liberado_pin"] = False
+                    changed = True
+            if changed:
+                self.guardar_prestamos_json()
         except Exception:
             self.prestamos = []
         self.refrescar_prestamos_tree()
@@ -498,13 +750,22 @@ class ResamaniaApp(tk.Tk):
         if not hasattr(self, "tree_prestamos"):
             return
         self.tree_prestamos.delete(*self.tree_prestamos.get_children())
-        for p in self.prestamos:
+        # Ordenar de más reciente a más antiguo por fecha
+        ordenados = sorted(
+            self.prestamos,
+            key=lambda p: self._parse_fecha_prestamo(p.get("fecha")) or datetime.min,
+            reverse=True
+        )
+        for p in ordenados:
+            iid = p.get("id") or uuid.uuid4().hex
+            p["id"] = iid
             tag = "verde" if p.get("devuelto") else "naranja"
             self.tree_prestamos.insert("", "end", values=[
                 p.get("codigo", ""), p.get("nombre", ""), p.get("apellidos", ""),
                 p.get("email", ""), p.get("movil", ""), p.get("material", ""),
-                p.get("fecha", ""), "SI" if p.get("devuelto") else "NO"
-            ], tags=(tag,))
+                p.get("fecha", ""), "SI" if p.get("devuelto") else "NO",
+                "SI" if p.get("liberado_pin") else "NO"
+            ], tags=(tag,), iid=iid)
 
     def exportar_excel(self):
         try:
