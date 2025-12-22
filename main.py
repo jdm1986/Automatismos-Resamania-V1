@@ -20,6 +20,7 @@ from logic.ultimate import obtener_socios_ultimate, obtener_socios_yanga
 from logic.avanza_fit import obtener_avanza_fit
 from logic.cumpleanos import obtener_cumpleanos_hoy
 from utils.file_loader import load_data_file
+from logic.impagos import ImpagosDB
 
 CONFIG_PATH = "config.json"
 
@@ -69,10 +70,21 @@ class ResamaniaApp(tk.Tk):
         self.prestamos = []
         self.clientes_ext_file = os.path.join("data", "clientes_ext.json")
         self.clientes_ext = []
+        self.prestamos_filtro_activo = False
+
+        # Felicitaciones (persistencia anual)
+        self.felicitaciones_file = os.path.join("data", "felicitaciones.json")
+        self.felicitaciones_enviadas = {}
+
+        # Impagos (SQLite)
+        self.impagos_db = ImpagosDB(os.path.join("data", "impagos.db"))
+        self.impagos_last_export = None
+        self.impagos_view = tk.StringVar(value="actuales")
 
         self.create_widgets()
         self.cargar_clientes_ext()
         self.cargar_prestamos_json()
+        self.cargar_felicitaciones()
         if self.folder_path:
             self.load_data()
 
@@ -112,9 +124,11 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="ENVÍO MARTES AVANZA FIT", command=self.enviar_avanza_fit, fg="#b30000").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="EXTRAER ACCESOS", command=self.extraer_accesos, fg="#0066cc").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="IR A PRÉSTAMOS", command=lambda: self.notebook.select(self.tabs.get("Prestamos")), bg="#ff9800", fg="black").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="IR A IMPAGOS", command=self.ir_a_impagos, bg="#ff6b6b", fg="black").pack(side=tk.LEFT, padx=10)
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(expand=1, fill='both')
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
         tab_colors = {
             "Wizville": "#6fa8dc",
@@ -128,6 +142,7 @@ class ResamaniaApp(tk.Tk):
             "Cumpleaños": "#f9cb9c",
             "Accesos Cliente": "#cfe2f3",
             "Prestamos": "#ffb74d",
+            "Impagos": "#ff6b6b",
         }
         self.tab_icons = {}
 
@@ -135,7 +150,7 @@ class ResamaniaApp(tk.Tk):
         for tab_name in [
             "Wizville", "Accesos Dobles", "Accesos Descuadrados",
             "Salidas PMR No Autorizadas", "Morosos Accediendo", "Socios Ultimate", "Socios Yanga",
-            "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos"
+            "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos"
         ]:
             tab = ttk.Frame(self.notebook)
             color = tab_colors.get(tab_name, "#cccccc")
@@ -146,16 +161,29 @@ class ResamaniaApp(tk.Tk):
             self.tabs[tab_name] = tab
             if tab_name == "Prestamos":
                 self.create_prestamos_tab(tab)
+            elif tab_name == "Impagos":
+                self.create_impagos_tab(tab)
             else:
                 self.create_table(tab)
+            if tab_name == "Impagos":
+                self.notebook.hide(tab)
 
     def create_table(self, tab):
-        tree = ttk.Treeview(tab, show="headings")
-        tree.pack(expand=True, fill='both', side='left')
+        container = tk.Frame(tab)
+        container.pack(expand=True, fill='both')
+        container.rowconfigure(0, weight=1)
+        container.columnconfigure(0, weight=1)
 
-        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=tree.yview)
-        scrollbar.pack(side='right', fill='y')
+        tree = ttk.Treeview(container, show="headings")
+        tree.grid(row=0, column=0, sticky="nsew")
+
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
         tree.configure(yscrollcommand=scrollbar.set)
+
+        hscrollbar = ttk.Scrollbar(container, orient="horizontal", command=tree.xview)
+        hscrollbar.grid(row=1, column=0, sticky="ew")
+        tree.configure(xscrollcommand=hscrollbar.set)
 
         def sort_column(col, reverse):
             datos = [(tree.set(k, col), k) for k in tree.get_children('')]
@@ -206,6 +234,7 @@ class ResamaniaApp(tk.Tk):
             accesos = load_data_file(self.folder_path, "ACCESOS")
             self.raw_accesos = accesos.copy()
             incidencias = load_data_file(self.folder_path, "IMPAGOS")
+            self.sync_impagos(incidencias)
 
             self.mostrar_en_tabla("Wizville", procesar_wizville(resumen, accesos))
             self.mostrar_en_tabla("Accesos Dobles", procesar_accesos_dobles(resumen, accesos))
@@ -232,7 +261,8 @@ class ResamaniaApp(tk.Tk):
 
         for col in df.columns:
             tree.heading(col, text=col, command=lambda c=col: self.sort_column(tree, c, False))
-            tree.column(col, anchor="center")
+            width = max(80, len(str(col)) * 8)
+            tree.column(col, anchor="center", width=width, stretch=True)
 
         tree.tag_configure("amarillo", background="#fff3cd")
         tree.tag_configure("rojo", background="#f8d7da")
@@ -284,17 +314,27 @@ class ResamaniaApp(tk.Tk):
         tk.Button(mid, text="CHECK DEVUELTO", command=self.marcar_devuelto, bg="#8bc34a", fg="black").pack(side="left", padx=5)
         tk.Button(mid, text="Enviar aviso email", command=self.enviar_aviso_prestamo, bg="#e53935", fg="white").pack(side="left", padx=5)
         tk.Button(mid, text="Enviar aviso Whatsapp", command=self.abrir_whatsapp_prestamo, bg="#e53935", fg="white").pack(side="left", padx=5)
+        tk.Button(mid, text="VISTA INDIVIDUAL/COLECTIVA", command=self.toggle_prestamos_vista, bg="#bdbdbd", fg="black").pack(side="left", padx=5)
 
         self.lbl_perdon = tk.Label(frm, text="", fg="red", font=("", 10, "bold"))
         self.lbl_perdon.pack(fill="x", padx=5, pady=2)
 
         cols = ["codigo", "nombre", "apellidos", "email", "movil", "material", "fecha", "devuelto", "liberado_pin"]
-        tree = ttk.Treeview(frm, columns=cols, show="headings")
+        table = tk.Frame(frm)
+        table.pack(fill="both", expand=True)
+        table.rowconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
+        tree = ttk.Treeview(table, columns=cols, show="headings")
         for c in cols:
             heading = "Liberado por PIN" if c == "liberado_pin" else c.capitalize()
             tree.heading(c, text=heading)
             tree.column(c, anchor="center")
-        tree.pack(fill="both", expand=True)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vscroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
+        vscroll.grid(row=0, column=1, sticky="ns")
+        hscroll = ttk.Scrollbar(table, orient="horizontal", command=tree.xview)
+        hscroll.grid(row=1, column=0, sticky="ew")
+        tree.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
         tree.tag_configure("naranja", background="#ffe6cc")
         tree.tag_configure("verde", background="#d4edda")
         tree.bind("<Control-c>", lambda e: self.copiar_celda(e, tree))
@@ -472,6 +512,20 @@ class ResamaniaApp(tk.Tk):
 
         tk.Button(win, text="Marcar devuelto", command=confirmar).pack(pady=5)
         tk.Button(win, text="Cerrar", command=win.destroy).pack(pady=2)
+
+    def toggle_prestamos_vista(self):
+        self.prestamos_filtro_activo = not self.prestamos_filtro_activo
+        if self.prestamos_filtro_activo:
+            codigo = ""
+            if getattr(self, "prestamo_encontrado", None):
+                codigo = self.prestamo_encontrado.get("codigo", "")
+            else:
+                codigo = self.prestamo_codigo.get().strip()
+            if not codigo:
+                messagebox.showwarning("Sin cliente", "Busca un cliente para ver su vista individual.")
+                self.prestamos_filtro_activo = False
+                return
+        self.refrescar_prestamos_tree()
 
     def editar_cliente_manual(self):
         """
@@ -730,6 +784,14 @@ class ResamaniaApp(tk.Tk):
         except Exception:
             self.clientes_ext = []
 
+    def cargar_felicitaciones(self):
+        try:
+            if os.path.exists(self.felicitaciones_file):
+                with open(self.felicitaciones_file, "r", encoding="utf-8") as f:
+                    self.felicitaciones_enviadas = json.load(f)
+        except Exception:
+            self.felicitaciones_enviadas = {}
+
     def guardar_prestamos_json(self):
         try:
             os.makedirs(os.path.dirname(self.prestamos_file), exist_ok=True)
@@ -746,6 +808,14 @@ class ResamaniaApp(tk.Tk):
         except Exception:
             pass
 
+    def guardar_felicitaciones(self):
+        try:
+            os.makedirs(os.path.dirname(self.felicitaciones_file), exist_ok=True)
+            with open(self.felicitaciones_file, "w", encoding="utf-8") as f:
+                json.dump(self.felicitaciones_enviadas, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
     def refrescar_prestamos_tree(self):
         if not hasattr(self, "tree_prestamos"):
             return
@@ -756,7 +826,15 @@ class ResamaniaApp(tk.Tk):
             key=lambda p: self._parse_fecha_prestamo(p.get("fecha")) or datetime.min,
             reverse=True
         )
+        codigo_filtro = None
+        if self.prestamos_filtro_activo:
+            if getattr(self, "prestamo_encontrado", None):
+                codigo_filtro = self.prestamo_encontrado.get("codigo")
+            else:
+                codigo_filtro = self.prestamo_codigo.get().strip()
         for p in ordenados:
+            if codigo_filtro and p.get("codigo") != codigo_filtro:
+                continue
             iid = p.get("id") or uuid.uuid4().hex
             p["id"] = iid
             tag = "verde" if p.get("devuelto") else "naranja"
@@ -766,6 +844,326 @@ class ResamaniaApp(tk.Tk):
                 p.get("fecha", ""), "SI" if p.get("devuelto") else "NO",
                 "SI" if p.get("liberado_pin") else "NO"
             ], tags=(tag,), iid=iid)
+
+    # -----------------------------
+    # PESTAÑA IMPAGOS
+    # -----------------------------
+    def create_impagos_tab(self, tab):
+        frm = tk.Frame(tab)
+        frm.pack(fill="both", expand=True, padx=10, pady=10)
+
+        top = tk.Frame(frm)
+        top.pack(fill="x", pady=4)
+        tk.Button(top, text="Actualizar desde CSV", command=self.refrescar_impagos_desde_csv).pack(side="left", padx=5)
+        tk.Label(top, text="Vista:").pack(side="left", padx=5)
+        tk.Button(top, text="Deudores actuales", command=lambda: self.impagos_set_view("actuales")).pack(side="left", padx=3)
+        tk.Button(top, text="1 incidente", command=lambda: self.impagos_set_view("incidentes1")).pack(side="left", padx=3)
+        tk.Button(top, text="2+ incidentes", command=lambda: self.impagos_set_view("incidentes2")).pack(side="left", padx=3)
+        tk.Button(top, text="Resueltos", command=lambda: self.impagos_set_view("resueltos")).pack(side="left", padx=3)
+        self.impagos_status = tk.Label(top, text="", anchor="w")
+        self.impagos_status.pack(side="left", padx=10)
+
+        actions = tk.Frame(frm)
+        actions.pack(fill="x", pady=6)
+        tk.Button(actions, text="Abrir WhatsApp", command=self.abrir_whatsapp_impagos, bg="#8bc34a", fg="black").pack(side="left", padx=5)
+        tk.Button(actions, text="Copiar email", command=self.copiar_email_impagos).pack(side="left", padx=5)
+        tk.Button(actions, text="Enviar email (1Inc)", command=lambda: self.enviar_email_impagos("1inc"), bg="#ffd54f", fg="black").pack(side="left", padx=5)
+        tk.Button(actions, text="Enviar email (2+ inc)", command=lambda: self.enviar_email_impagos("2inc"), bg="#ff8a65", fg="black").pack(side="left", padx=5)
+
+        cols = ["codigo", "nombre", "apellidos", "email", "movil", "incidentes", "email_enviado", "fecha_envio", "historial_email", "reincidente", "fecha_export"]
+        table = tk.Frame(frm)
+        table.pack(fill="both", expand=True)
+        table.rowconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
+        tree = ttk.Treeview(table, columns=cols, show="headings")
+        for c in cols:
+            if c == "fecha_export":
+                heading = "Fecha export"
+            elif c == "email_enviado":
+                heading = "Email enviado"
+            elif c == "fecha_envio":
+                heading = "Fecha envio"
+            elif c == "historial_email":
+                heading = "Historial emails"
+            elif c == "reincidente":
+                heading = "Reincidente"
+            else:
+                heading = c.capitalize()
+            tree.heading(c, text=heading)
+            tree.column(c, anchor="center")
+        col_widths = {
+            "codigo": 90,
+            "nombre": 100,
+            "apellidos": 130,
+            "email": 190,
+            "movil": 90,
+            "incidentes": 70,
+            "email_enviado": 90,
+            "fecha_envio": 90,
+            "historial_email": 150,
+            "reincidente": 90,
+            "fecha_export": 90,
+        }
+        for c, w in col_widths.items():
+            tree.column(c, width=w, stretch=False)
+        # Deja la última columna expansible para ocupar el ancho disponible
+        tree.column("fecha_export", stretch=True)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vscroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
+        vscroll.grid(row=0, column=1, sticky="ns")
+        hscroll = ttk.Scrollbar(table, orient="horizontal", command=tree.xview)
+        hscroll.grid(row=1, column=0, sticky="ew")
+        tree.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+        tree.bind("<Control-c>", lambda e: self.copiar_celda(e, tree))
+        menu = tk.Menu(tree, tearoff=0)
+        menu.add_command(label="Copiar", command=lambda: self.copiar_celda(tree.event_context, tree))
+        tree.bind("<Button-3>", lambda e: self.mostrar_menu(e, menu, tree))
+        self.tree_impagos = tree
+        tab.tree = tree
+
+    def refrescar_impagos_desde_csv(self):
+        if self.folder_path:
+            try:
+                incidencias = load_data_file(self.folder_path, "IMPAGOS")
+                self.sync_impagos(incidencias)
+            except Exception as e:
+                messagebox.showerror("Impagos", f"No se pudo cargar IMPAGOS.csv: {e}")
+        else:
+            messagebox.showwarning("Sin carpeta", "Selecciona primero la carpeta de datos.")
+
+    def sync_impagos(self, df):
+        try:
+            resumen_map = None
+            if self.resumen_df is not None:
+                cols = {self._norm(c): c for c in self.resumen_df.columns}
+                col_codigo = cols.get("NUMERO DE CLIENTE") or cols.get("NUMERO DE SOCIO")
+                col_nombre = cols.get("NOMBRE")
+                col_apellidos = cols.get("APELLIDOS")
+                col_email = cols.get("CORREO ELECTRONICO") or cols.get("EMAIL") or cols.get("CORREO")
+                col_movil = cols.get("MOVIL") or cols.get("TELEFONO") or cols.get("TELEFONO MOVIL")
+                if col_codigo:
+                    resumen_map = {}
+                    for _, row in self.resumen_df.iterrows():
+                        codigo = str(row.get(col_codigo, "")).strip()
+                        if not codigo:
+                            continue
+                        resumen_map[codigo] = {
+                            "nombre": str(row.get(col_nombre, "")).strip(),
+                            "apellidos": str(row.get(col_apellidos, "")).strip(),
+                            "email": str(row.get(col_email, "")).strip(),
+                            "movil": str(row.get(col_movil, "")).strip(),
+                        }
+            fecha, count = self.impagos_db.sync_from_df(df, resumen_map=resumen_map)
+            self.impagos_last_export = fecha
+            self.impagos_status.config(text=f"Export: {fecha} | Registros: {count}")
+            self.refresh_impagos_view()
+        except Exception as e:
+            messagebox.showerror("Impagos", f"Error sincronizando impagos: {e}")
+
+    def impagos_set_view(self, view_name):
+        self.impagos_view.set(view_name)
+        self.refresh_impagos_view()
+
+    def refresh_impagos_view(self):
+        if not hasattr(self, "tree_impagos"):
+            return
+        if not self.impagos_last_export:
+            self.impagos_last_export = self.impagos_db.get_last_export()
+        rows = self.impagos_db.fetch_view(self.impagos_view.get(), self.impagos_last_export)
+        self.tree_impagos.delete(*self.tree_impagos.get_children())
+        for r in rows:
+            values = list(r)
+            # Normaliza checks para email/reincidente
+            if len(values) >= 11:
+                values[7] = values[7] or ""
+                values[6] = "SI" if values[6] else "NO"
+                values[9] = "SI" if values[9] else "NO"
+                values[8] = values[8] or ""
+            self.tree_impagos.insert("", "end", values=values, iid=str(r[0]))
+
+    def _get_impagos_selected(self):
+        sel = self.tree_impagos.selection()
+        if not sel:
+            messagebox.showwarning("Sin seleccion", "Selecciona un cliente.")
+            return None
+        values = self.tree_impagos.item(sel[0])["values"]
+        return {
+            "codigo": values[0],
+            "nombre": values[1],
+            "apellidos": values[2],
+            "email": values[3],
+            "movil": values[4],
+            "incidentes": values[5],
+            "email_enviado": values[6] if len(values) > 6 else "",
+            "fecha_envio": values[7] if len(values) > 7 else "",
+            "historial_email": values[8] if len(values) > 8 else "",
+            "reincidente": values[9] if len(values) > 9 else "",
+            "fecha_export": values[10] if len(values) > 10 else "",
+        }
+
+    def abrir_whatsapp_impagos(self):
+        data = self._get_impagos_selected()
+        if not data:
+            return
+        movil = self._normalizar_movil(data.get("movil", ""))
+        if not movil:
+            messagebox.showwarning("Sin movil", "El cliente no tiene movil registrado.")
+            return
+        try:
+            url = f"https://wa.me/{movil}"
+            webbrowser.open(url)
+        except Exception as e:
+            messagebox.showerror("WhatsApp", f"No se pudo abrir el enlace: {e}")
+
+    def copiar_email_impagos(self):
+        data = self._get_impagos_selected()
+        if not data:
+            return
+        email = data.get("email", "").strip()
+        if not email:
+            messagebox.showwarning("Sin email", "El cliente no tiene email registrado.")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(email)
+        messagebox.showinfo("Copiado", "Email copiado al portapapeles.")
+
+    def _impagos_registrar(self, accion, plantilla=""):
+        data = self._get_impagos_selected()
+        if not data:
+            return
+        cliente_id = self.impagos_db.get_cliente_id(data["codigo"])
+        if not cliente_id:
+            messagebox.showerror("Impagos", "Cliente no encontrado en la base.")
+            return
+        self.impagos_db.add_gestion(cliente_id, accion, plantilla, "")
+        messagebox.showinfo("Registrado", f"Accion registrada: {accion}.")
+        self.refresh_impagos_view()
+
+    def enviar_email_impagos(self, plantilla):
+        # Recolecta emails desde la vista actual según incidentes
+        rows = [self.tree_impagos.item(i)["values"] for i in self.tree_impagos.get_children()]
+        if plantilla == "1inc":
+            rows = [r for r in rows if int(r[5]) == 1]
+        else:
+            rows = [r for r in rows if int(r[5]) >= 2]
+        emails = [str(r[3]).strip() for r in rows if str(r[3]).strip()]
+        if not emails:
+            messagebox.showwarning("Sin emails", "No hay emails disponibles en esta vista.")
+            return
+
+        cuerpo_html = self._impagos_email_html(plantilla)
+        asunto = "Aviso de impago"
+        imagen_path = get_logo_path("PAGADEUDA.png")
+
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            messagebox.showwarning("Outlook no disponible", "No se pudo importar win32com.client.")
+            return
+
+        def try_outlook():
+            outlook_app = win32com.client.Dispatch("Outlook.Application")
+            try:
+                ns = outlook_app.GetNamespace("MAPI")
+                ns.Logon("", "", False, False)
+            except Exception:
+                pass
+            return outlook_app
+
+        try:
+            try:
+                outlook = try_outlook()
+            except Exception:
+                os.startfile("outlook.exe")
+                time.sleep(3)
+                outlook = try_outlook()
+
+            mail = outlook.CreateItem(0)
+            mail.BCC = ";".join(sorted(set(emails)))
+            mail.Subject = asunto
+            cid = uuid.uuid4().hex
+            if os.path.exists(imagen_path):
+                attachment = mail.Attachments.Add(imagen_path, 1, 0)
+                attachment.PropertyAccessor.SetProperty(
+                    "http://schemas.microsoft.com/mapi/proptag/0x3712001E", cid
+                )
+                mail.HTMLBody = cuerpo_html.replace("{{CID}}", cid)
+            else:
+                mail.HTMLBody = cuerpo_html.replace("<img src=\"cid:{{CID}}\" alt=\"Paga deuda\" style=\"max-width:100%;\">", "")
+
+            mail.Display()
+        except Exception as e:
+            messagebox.showerror("Outlook", f"No se pudo crear el correo: {e}")
+            return
+
+        if not messagebox.askyesno("Confirmación", "¿Ha enviado el email?"):
+            return
+
+        # Registrar gestión para todos los clientes de la lista
+        for r in rows:
+            codigo = str(r[0]).strip()
+            cliente_id = self.impagos_db.get_cliente_id(codigo)
+            if cliente_id:
+                self.impagos_db.add_gestion(cliente_id, "email", plantilla, "")
+        self.refresh_impagos_view()
+
+    def _impagos_email_html(self, plantilla):
+        wa = "https://wa.me/34681872664"
+        wa_link = f"<a href=\"{wa}\">{wa}</a>"
+        if plantilla == "1inc":
+            texto = (
+                "👋 ¡Hola! Tienes un recibo pendiente de pago y el torno no permitirá el acceso 😢<br><br>"
+                "🔸Si vienes de 6 a 9 am (horario sin atención comercial), te recomendamos pasar por recepción a partir de las 9 am "
+                "para solucionarlo lo antes posible 🙂.<br><br>"
+                "🔸Puedes abonar en efectivo💶 o con tarjeta 💳, incluso abonarlo desde la propia aplicación. Aquí te mostramos como más abajo.<br>"
+                "🗓 Recuerda: puedes anticipar el pago entre 5 y 15 días antes de tu siguiente día de pago que siempre podrás consultar en tu APP Fitness Park.<br>"
+                f"📲 Dudas? PREGÚNTANOS al whatsapp ({wa_link}) o contestando este email."
+            )
+        else:
+            texto = (
+                "Hemos detectado que actualmente tienes 2 recibos o más pendientes en tu cuenta de socio/a.<br><br>"
+                "Queremos ayudarte a regularizar tu situación lo antes posible para que puedas seguir disfrutando de todas las instalaciones "
+                "sin inconvenientes, evitando que el sistema derive tu caso a la empresa de recobros PayPymes.<br><br>"
+                "💡 Opciones para abonar:<br>"
+                "💳 Tarjeta o 💶 efectivo en recepción.<br><br>"
+                "📱 Directamente desde tu APP Fitness Park, en “Espacio de cliente” → “Pagos”. (Te mostramos cómo más abajo)<br><br>"
+                "⚠ Aviso importante: En caso de que se genere un tercer recibo impagado, desde el club dejaremos de emitir advertencias y tu expediente "
+                "el sistema lo derivará directamente a nuestra empresa colaboradora de recobros Paypymes, que se pondrá en contacto contigo para gestionar la deuda.<br><br>"
+                "🗓 Recuerda: puedes anticipar el pago entre 5 y 15 días antes de tu siguiente día de pago que siempre podrás consultar en tu APP Fitness Park, "
+                "en el icono espacio de cliente y luego en el apartado “PAGOS”.<br><br>"
+                "🙏 Te animamos a ponerte al día lo antes posible para evitar cualquier gestión externa y que todo siga con normalidad. "
+                "Estamos a tu disposición en recepción para cualquier duda.<br><br>"
+                f"📲 Dudas? PREGÚNTANOS por whatsapp ({wa_link}) o contestando este email."
+            )
+        return (
+            "<div style=\"font-family:Arial,sans-serif;font-size:14px;\">"
+            f"{texto}<br><br>"
+            "<img src=\"cid:{{CID}}\" alt=\"Paga deuda\" style=\"max-width:100%;\">"
+            "</div>"
+        )
+
+    def ir_a_impagos(self):
+        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
+        if pin is None:
+            return
+        if pin.strip() != get_security_code():
+            messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
+            return
+        tab = self.tabs.get("Impagos")
+        if tab:
+            self.notebook.add(tab, text="Impagos", image=self.tab_icons.get("Impagos"), compound="left")
+            self.notebook.select(tab)
+
+    def on_tab_changed(self, event):
+        tab = self.tabs.get("Impagos")
+        if not tab:
+            return
+        current = self.notebook.select()
+        if current != str(tab):
+            try:
+                self.notebook.hide(tab)
+            except Exception:
+                pass
 
     def exportar_excel(self):
         try:
@@ -967,15 +1365,20 @@ class ResamaniaApp(tk.Tk):
         emails = [e for e in emails if e]
         emails = list(dict.fromkeys(emails))  # quitar duplicados manteniendo orden
 
-        if not emails:
-            messagebox.showwarning("Sin correos", "No hay correos electrónicos en la pestaña Cumpleaños.")
+        # Filtra ya enviados este año
+        year = str(datetime.now().year)
+        enviados = set(self.felicitaciones_enviadas.get(year, []))
+        emails_pendientes = [e for e in emails if e.lower() not in enviados]
+
+        if not emails_pendientes:
+            messagebox.showwarning("Sin correos", "Todos los cumpleaños de hoy ya fueron felicitados este año.")
             return
 
         try:
             import win32com.client  # tipo: ignore
         except ImportError:
             # Fallback: copiar correos al portapapeles para pegarlos en BCC manualmente.
-            emails_joined = ";".join(emails)
+            emails_joined = ";".join(emails_pendientes)
             self.clipboard_clear()
             self.clipboard_append(emails_joined)
             messagebox.showwarning(
@@ -1008,7 +1411,7 @@ class ResamaniaApp(tk.Tk):
                     raise
 
             mail = outlook.CreateItem(0)
-            mail.BCC = ";".join(emails)
+            mail.BCC = ";".join(emails_pendientes)
             mail.Subject = "¡Felicidades!"
 
             # Inserta imagen inline si existe en disco.
@@ -1034,9 +1437,15 @@ class ResamaniaApp(tk.Tk):
                 )
 
             mail.Display()  # abre borrador para revisión
-            messagebox.showinfo("Borrador creado", "Outlook se abrió con los correos en copia oculta.")
+            if not messagebox.askyesno("Confirmación", "¿Ha enviado la felicitación?"):
+                return
+            # Marca como enviados para este año
+            enviados.update([e.lower() for e in emails_pendientes])
+            self.felicitaciones_enviadas[year] = sorted(enviados)
+            self.guardar_felicitaciones()
+            messagebox.showinfo("Registrado", "Felicitaciones registradas. No se reenviarán hasta el próximo año.")
         except Exception as e:
-            emails_joined = ";".join(emails)
+            emails_joined = ";".join(emails_pendientes)
             self.clipboard_clear()
             self.clipboard_append(emails_joined)
             messagebox.showerror(
