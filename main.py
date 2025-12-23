@@ -869,6 +869,7 @@ class ResamaniaApp(tk.Tk):
         tk.Button(actions, text="Copiar email", command=self.copiar_email_impagos).pack(side="left", padx=5)
         tk.Button(actions, text="Enviar email (1Inc)", command=lambda: self.enviar_email_impagos("1inc"), bg="#ffd54f", fg="black").pack(side="left", padx=5)
         tk.Button(actions, text="Enviar email (2+ inc)", command=lambda: self.enviar_email_impagos("2inc"), bg="#ff8a65", fg="black").pack(side="left", padx=5)
+        tk.Button(actions, text="Enviar email resueltos", command=self.enviar_email_resueltos, bg="#81c784", fg="black").pack(side="left", padx=5)
 
         cols = ["codigo", "nombre", "apellidos", "email", "movil", "incidentes", "email_enviado", "fecha_envio", "historial_email", "reincidente", "fecha_export"]
         table = tk.Frame(frm)
@@ -971,6 +972,10 @@ class ResamaniaApp(tk.Tk):
             self.impagos_last_export = self.impagos_db.get_last_export()
         rows = self.impagos_db.fetch_view(self.impagos_view.get(), self.impagos_last_export)
         self.tree_impagos.delete(*self.tree_impagos.get_children())
+        if self.impagos_view.get() == "resueltos":
+            self.tree_impagos["displaycolumns"] = ("codigo", "nombre", "apellidos", "email", "movil")
+        else:
+            self.tree_impagos["displaycolumns"] = self.tree_impagos["columns"]
         for r in rows:
             values = list(r)
             # Normaliza checks para email/reincidente
@@ -1107,6 +1112,69 @@ class ResamaniaApp(tk.Tk):
                 self.impagos_db.add_gestion(cliente_id, "email", plantilla, "")
         self.refresh_impagos_view()
 
+    def enviar_email_resueltos(self):
+        if self.impagos_view.get() != "resueltos":
+            messagebox.showwarning("Impagos", "Selecciona la vista Resueltos para enviar este email.")
+            return
+        rows = [self.tree_impagos.item(i)["values"] for i in self.tree_impagos.get_children()]
+        emails = [str(r[3]).strip() for r in rows if str(r[3]).strip()]
+        if not emails:
+            messagebox.showwarning("Sin emails", "No hay emails en Resueltos.")
+            return
+        asunto = "TODO EN ORDEN"
+        imagen_path = get_logo_path("PAGOHECHO.png")
+        html = self._impagos_email_imagen_html()
+
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            messagebox.showwarning("Outlook no disponible", "No se pudo importar win32com.client.")
+            return
+
+        def try_outlook():
+            outlook_app = win32com.client.Dispatch("Outlook.Application")
+            try:
+                ns = outlook_app.GetNamespace("MAPI")
+                ns.Logon("", "", False, False)
+            except Exception:
+                pass
+            return outlook_app
+
+        try:
+            try:
+                outlook = try_outlook()
+            except Exception:
+                os.startfile("outlook.exe")
+                time.sleep(3)
+                outlook = try_outlook()
+
+            mail = outlook.CreateItem(0)
+            mail.BCC = ";".join(sorted(set(emails)))
+            mail.Subject = asunto
+            cid = uuid.uuid4().hex
+            if os.path.exists(imagen_path):
+                attachment = mail.Attachments.Add(imagen_path, 1, 0)
+                attachment.PropertyAccessor.SetProperty(
+                    "http://schemas.microsoft.com/mapi/proptag/0x3712001E", cid
+                )
+                mail.HTMLBody = html.replace("{{CID}}", cid)
+            else:
+                mail.HTMLBody = html.replace("<img src=\"cid:{{CID}}\" alt=\"Pago hecho\" style=\"max-width:100%;\">", "")
+
+            mail.Display()
+        except Exception as e:
+            messagebox.showerror("Outlook", f"No se pudo crear el correo: {e}")
+            return
+
+        if not messagebox.askyesno("Confirmación", "¿Ha enviado el email de resueltos?"):
+            return
+        for r in rows:
+            codigo = str(r[0]).strip()
+            cliente_id = self.impagos_db.get_cliente_id(codigo)
+            if cliente_id:
+                self.impagos_db.add_gestion(cliente_id, "resuelto_email", "resuelto", "")
+        self.refresh_impagos_view()
+
     def _impagos_email_html(self, plantilla):
         wa = "https://wa.me/34681872664"
         wa_link = f"<a href=\"{wa}\">{wa}</a>"
@@ -1139,6 +1207,13 @@ class ResamaniaApp(tk.Tk):
             "<div style=\"font-family:Arial,sans-serif;font-size:14px;\">"
             f"{texto}<br><br>"
             "<img src=\"cid:{{CID}}\" alt=\"Paga deuda\" style=\"max-width:100%;\">"
+            "</div>"
+        )
+
+    def _impagos_email_imagen_html(self):
+        return (
+            "<div style=\"font-family:Arial,sans-serif;font-size:14px;\">"
+            "<img src=\"cid:{{CID}}\" alt=\"Pago hecho\" style=\"max-width:100%;\">"
             "</div>"
         )
 
