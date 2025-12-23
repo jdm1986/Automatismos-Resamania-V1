@@ -25,6 +25,8 @@ pyinstaller ^
   --icon "%~dp0favicon.ico" ^
   --add-data "%~dp0logodeveloper.png;." ^
   --add-data "%~dp0feliz_cumpleanos.png;." ^
+  --add-data "%~dp0PAGADEUDA.png;." ^
+  --add-data "%~dp0PAGOHECHO.png;." ^
   --add-data "%~dp0config.json;." ^
   --hidden-import=win32com ^
   --hidden-import=win32com.client ^

@@ -5,7 +5,7 @@ a = Analysis(
     ['C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\main.py'],
     pathex=[],
     binaries=[],
-    datas=[('C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\logodeveloper.png', '.'), ('C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\feliz_cumpleanos.png', '.'), ('C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\config.json', '.')],
+    datas=[('C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\logodeveloper.png', '.'), ('C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\feliz_cumpleanos.png', '.'), ('C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\PAGADEUDA.png', '.'), ('C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\PAGOHECHO.png', '.'), ('C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\config.json', '.')],
     hiddenimports=['win32com', 'win32com.client', 'pythoncom', 'pywintypes'],
     hookspath=[],
     hooksconfig={},

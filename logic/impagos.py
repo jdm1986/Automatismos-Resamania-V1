@@ -273,7 +273,7 @@ class ImpagosDB:
             "  FROM impagos_gestion WHERE accion='email' GROUP BY cliente_id"
             "), cycle AS ("
             "  SELECT cliente_id, MAX(fecha) AS cycle_start "
-            "  FROM impagos_gestion WHERE accion='resuelto_auto' GROUP BY cliente_id"
+            "  FROM impagos_gestion WHERE accion='resuelto_email' GROUP BY cliente_id"
             "), last_email_cycle AS ("
             "  SELECT g.cliente_id, g.fecha AS last_email, g.plantilla AS last_plantilla "
             "  FROM impagos_gestion g "

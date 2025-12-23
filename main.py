@@ -338,6 +338,7 @@ class ResamaniaApp(tk.Tk):
         tree.tag_configure("naranja", background="#ffe6cc")
         tree.tag_configure("verde", background="#d4edda")
         tree.bind("<Control-c>", lambda e: self.copiar_celda(e, tree))
+        tree.bind("<Double-1>", self.on_prestamo_doble_click)
         menu = tk.Menu(tree, tearoff=0)
         menu.add_command(label="Copiar", command=lambda: self.copiar_celda(tree.event_context, tree))
         tree.bind("<Button-3>", lambda e: self.mostrar_menu(e, menu, tree))
@@ -526,6 +527,21 @@ class ResamaniaApp(tk.Tk):
                 self.prestamos_filtro_activo = False
                 return
         self.refrescar_prestamos_tree()
+
+    def on_prestamo_doble_click(self, event):
+        tree = self.tree_prestamos
+        item = tree.identify_row(event.y)
+        if not item:
+            return
+        valores = tree.item(item)["values"]
+        if not valores:
+            return
+        codigo = str(valores[0]).strip()
+        if not codigo:
+            return
+        self.prestamo_codigo.delete(0, tk.END)
+        self.prestamo_codigo.insert(0, codigo)
+        self.buscar_cliente_prestamo()
 
     def editar_cliente_manual(self):
         """
@@ -890,7 +906,7 @@ class ResamaniaApp(tk.Tk):
                 heading = "Reincidente"
             else:
                 heading = c.capitalize()
-            tree.heading(c, text=heading)
+            tree.heading(c, text=heading, command=lambda col=c: self.sort_column(tree, col, False))
             tree.column(c, anchor="center")
         col_widths = {
             "codigo": 90,
@@ -974,8 +990,16 @@ class ResamaniaApp(tk.Tk):
         self.tree_impagos.delete(*self.tree_impagos.get_children())
         if self.impagos_view.get() == "resueltos":
             self.tree_impagos["displaycolumns"] = ("codigo", "nombre", "apellidos", "email", "movil")
+        elif self.impagos_view.get() == "actuales":
+            self.tree_impagos["displaycolumns"] = (
+                "codigo", "nombre", "apellidos", "email", "movil",
+                "incidentes", "email_enviado", "historial_email"
+            )
         else:
-            self.tree_impagos["displaycolumns"] = self.tree_impagos["columns"]
+            self.tree_impagos["displaycolumns"] = (
+                "codigo", "nombre", "apellidos", "email", "movil",
+                "incidentes", "email_enviado", "historial_email", "fecha_export"
+            )
         for r in rows:
             values = list(r)
             # Normaliza checks para email/reincidente
@@ -1052,9 +1076,6 @@ class ResamaniaApp(tk.Tk):
         else:
             rows = [r for r in rows if int(r[5]) >= 2]
         emails = [str(r[3]).strip() for r in rows if str(r[3]).strip()]
-        if not emails:
-            messagebox.showwarning("Sin emails", "No hay emails disponibles en esta vista.")
-            return
 
         cuerpo_html = self._impagos_email_html(plantilla)
         asunto = "Aviso de impago"
@@ -1084,7 +1105,8 @@ class ResamaniaApp(tk.Tk):
                 outlook = try_outlook()
 
             mail = outlook.CreateItem(0)
-            mail.BCC = ";".join(sorted(set(emails)))
+            if emails:
+                mail.BCC = ";".join(sorted(set(emails)))
             mail.Subject = asunto
             cid = uuid.uuid4().hex
             if os.path.exists(imagen_path):
@@ -1103,6 +1125,8 @@ class ResamaniaApp(tk.Tk):
 
         if not messagebox.askyesno("Confirmación", "¿Ha enviado el email?"):
             return
+        if not emails:
+            return
 
         # Registrar gestión para todos los clientes de la lista
         for r in rows:
@@ -1118,9 +1142,6 @@ class ResamaniaApp(tk.Tk):
             return
         rows = [self.tree_impagos.item(i)["values"] for i in self.tree_impagos.get_children()]
         emails = [str(r[3]).strip() for r in rows if str(r[3]).strip()]
-        if not emails:
-            messagebox.showwarning("Sin emails", "No hay emails en Resueltos.")
-            return
         asunto = "TODO EN ORDEN"
         imagen_path = get_logo_path("PAGOHECHO.png")
         html = self._impagos_email_imagen_html()
@@ -1149,7 +1170,8 @@ class ResamaniaApp(tk.Tk):
                 outlook = try_outlook()
 
             mail = outlook.CreateItem(0)
-            mail.BCC = ";".join(sorted(set(emails)))
+            if emails:
+                mail.BCC = ";".join(sorted(set(emails)))
             mail.Subject = asunto
             cid = uuid.uuid4().hex
             if os.path.exists(imagen_path):
@@ -1167,6 +1189,8 @@ class ResamaniaApp(tk.Tk):
             return
 
         if not messagebox.askyesno("Confirmación", "¿Ha enviado el email de resueltos?"):
+            return
+        if not emails:
             return
         for r in rows:
             codigo = str(r[0]).strip()
