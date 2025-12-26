@@ -24,6 +24,7 @@ pyinstaller ^
   --windowed ^
   --icon "%~dp0favicon.ico" ^
   --add-data "%~dp0logodeveloper.png;." ^
+  --add-data "%~dp0LogoFpark.png;." ^
   --add-data "%~dp0feliz_cumpleanos.png;." ^
   --add-data "%~dp0PAGADEUDA.png;." ^
   --add-data "%~dp0PAGOHECHO.png;." ^

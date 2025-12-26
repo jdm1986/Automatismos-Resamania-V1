@@ -118,28 +118,52 @@ class ResamaniaApp(tk.Tk):
 
     def create_widgets(self):
         top_frame = tk.Frame(self)
-        top_frame.pack(pady=10)
+        top_frame.pack(pady=10, fill="x")
 
         # Logo universal (compatible con .exe y .py)
-        logo_path = get_logo_path("logodeveloper.png")
-        if os.path.exists(logo_path):
-            img = Image.open(logo_path)
-            img = img.resize((140, 140))
-            self.logo_img = ImageTk.PhotoImage(img)
-            tk.Label(top_frame, image=self.logo_img).pack(side=tk.LEFT, padx=10)
+        logo_fp_path = get_logo_path("LogoFpark.png")
+        if os.path.exists(logo_fp_path):
+            img_fp = Image.open(logo_fp_path)
+            img_fp = img_fp.resize((550, 140))
+            self.logo_fp_img = ImageTk.PhotoImage(img_fp)
+            tk.Label(top_frame, image=self.logo_fp_img).pack(side=tk.LEFT, padx=10)
+
+        instrucciones_frame = tk.Frame(top_frame)
+        instrucciones_frame.pack(side=tk.LEFT, padx=10, expand=True, fill="x")
+
+        tk.Label(
+            instrucciones_frame,
+            text="INSTRUCCIONES PARA USO CORRECTO:",
+            justify="left",
+            anchor="w",
+            font=("Arial", 10, "bold"),
+        ).pack(anchor="w")
 
         instrucciones = (
-            "INSTRUCCIONES PARA USO CORRECTO:\n\n"
-            "- La carpeta seleccionada debe contener los siguientes archivos (exportados de Resamania y deben sobreescribir los existentes):\n"
+            "- La carpeta seleccionada debe contener los siguientes archivos (exportados de Resamania y deben sobreescribir los existentes):\n\n"
             "   - RESUMEN CLIENTE.csv\n"
             "   - ACCESOS.csv (intervalo de 4 semanas atrás)\n"
             "   - FACTURAS Y VALES.csv (intervalo de 4 semanas atrás)\n"
             "   - IMPAGOS.csv (Exportar el día actual el archivo - Clientes con Incidente de Pago)\n\n"
             "- Todos los archivos deben ser del mismo dia de exportacion.\n"
-            "- Pulsa el boton 'Seleccionar carpeta' para comenzar la revision.\n\n"
-            "NOTA: Una vez seleccionada una carpeta, el programa la mantiene por defecto hasta que elijas otra."
+            "- Pulsa el boton 'Seleccionar carpeta' para comenzar la revision.\n"
         )
-        tk.Label(top_frame, text=instrucciones, justify='left', anchor='w').pack(side=tk.LEFT, padx=10)
+        tk.Label(instrucciones_frame, text=instrucciones, justify="left", anchor="w").pack(anchor="w")
+
+        tk.Label(
+            instrucciones_frame,
+            text="NOTA: Una vez seleccionada una carpeta, el programa la mantiene por defecto hasta que elijas otra.",
+            justify="left",
+            anchor="w",
+            font=("Arial", 10, "bold"),
+        ).pack(anchor="w", pady=(4, 0))
+
+        logo_path = get_logo_path("logodeveloper.png")
+        if os.path.exists(logo_path):
+            img = Image.open(logo_path)
+            img = img.resize((140, 140))
+            self.logo_img = ImageTk.PhotoImage(img)
+            tk.Label(top_frame, image=self.logo_img).pack(side=tk.RIGHT, padx=10)
 
         botones_frame = tk.Frame(self)
         botones_frame.pack(pady=5)
