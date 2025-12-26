@@ -1383,6 +1383,49 @@ class ResamaniaApp(tk.Tk):
             if color not in self.incidencias_color_used:
                 self.incidencias_color_used.add(color)
                 return color
+    def _incidencias_center_window(self, win):
+        win.update_idletasks()
+        w = win.winfo_width()
+        h = win.winfo_height()
+        sw = win.winfo_screenwidth()
+        sh = win.winfo_screenheight()
+        x = max(int((sw - w) / 2), 0)
+        y = max(int((sh - h) / 2), 0)
+        win.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _incidencias_prompt_text(self, title, label, initial=""):
+        self._bring_to_front()
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.transient(self)
+        win.resizable(False, False)
+        tk.Label(win, text=label).pack(padx=10, pady=(10, 4))
+        entry = tk.Entry(win, width=40)
+        entry.pack(padx=10, pady=4)
+        if initial:
+            entry.insert(0, initial)
+        entry.focus_set()
+        result = {"value": None}
+
+        def accept():
+            result["value"] = entry.get()
+            win.destroy()
+
+        def cancel():
+            result["value"] = None
+            win.destroy()
+
+        btns = tk.Frame(win)
+        btns.pack(pady=8)
+        tk.Button(btns, text="OK", width=8, command=accept).pack(side="left", padx=5)
+        tk.Button(btns, text="Cancel", width=8, command=cancel).pack(side="left", padx=5)
+        win.bind("<Return>", lambda _e: accept())
+        win.bind("<Escape>", lambda _e: cancel())
+        win.grab_set()
+        self._incidencias_center_window(win)
+        win.wait_window()
+        return result["value"]
+
     def _incidencias_set_area_header(self, area_id):
         if not self.incidencias_area_title or not self.incidencias_btn_vista_general:
             return
@@ -1631,7 +1674,7 @@ class ResamaniaApp(tk.Tk):
         if not self._incidencias_pin_ok():
             return
         self._bring_to_front()
-        nombre = simpledialog.askstring("Area", "Como se va a llamar el area?", parent=self)
+        nombre = self._incidencias_prompt_text("Área", "¿Cómo se va a llamar el área?")
         if not nombre:
             return
         self.incidencias_mode = ("area", nombre)
@@ -1869,6 +1912,7 @@ class ResamaniaApp(tk.Tk):
             menu.add_command(label="Modificar Incidencia", command=lambda: self._incidencias_editar_incidencia(int(item)))
             menu.add_command(label="Eliminar Incidencia", command=lambda: self._incidencias_eliminar_incidencia(int(item)))
             menu.add_command(label="Modificar Estado", command=lambda: self._incidencias_cambiar_estado(int(item)))
+            menu.add_command(label="Modificar reporte visual", command=lambda: self._incidencias_cambiar_reporte(int(item)))
             reporte = self.incidencias_inc_map.get(int(item), {}).get("reporte")
             if reporte:
                 menu.add_command(label="Ver reporte visual", command=lambda: self._incidencias_ver_reporte(reporte))
@@ -2039,12 +2083,40 @@ class ResamaniaApp(tk.Tk):
         return None
     def _incidencias_editar_incidencia(self, inc_id):
         self._bring_to_front()
-        elemento = simpledialog.askstring("Incidencia", "Material/elemento:", parent=self)
-        descripcion = simpledialog.askstring("Incidencia", "Describe la incidencia:", parent=self)
+        elemento = self._incidencias_prompt_text("Incidencia", "Material/elemento:")
+        descripcion = self._incidencias_prompt_text("Incidencia", "Describe la incidencia:")
         estado = self._incidencias_selector_estado()
         if not estado:
             estado = "PENDIENTE"
+        reporte_actual = None
+        if hasattr(self, "incidencias_inc_map"):
+            reporte_actual = self.incidencias_inc_map.get(inc_id, {}).get("reporte")
+        if messagebox.askyesno("Incidencia", "Desea cambiar reporte visual?", parent=self):
+            reporte_nuevo = self._incidencias_pedir_reporte_visual()
+            if reporte_nuevo:
+                if reporte_actual and reporte_actual != reporte_nuevo and os.path.exists(reporte_actual):
+                    try:
+                        os.remove(reporte_actual)
+                    except Exception:
+                        pass
+                self.incidencias_db.update_incidencia_reporte(inc_id, reporte_nuevo)
         self.incidencias_db.update_incidencia(inc_id, elemento or "", descripcion or "", estado)
+        self.incidencias_gestion_incidencias()
+
+    def _incidencias_cambiar_reporte(self, inc_id):
+        self._bring_to_front()
+        reporte_actual = None
+        if hasattr(self, "incidencias_inc_map"):
+            reporte_actual = self.incidencias_inc_map.get(inc_id, {}).get("reporte")
+        reporte_nuevo = self._incidencias_pedir_reporte_visual()
+        if not reporte_nuevo:
+            return
+        if reporte_actual and reporte_actual != reporte_nuevo and os.path.exists(reporte_actual):
+            try:
+                os.remove(reporte_actual)
+            except Exception:
+                pass
+        self.incidencias_db.update_incidencia_reporte(inc_id, reporte_nuevo)
         self.incidencias_gestion_incidencias()
 
     def _incidencias_eliminar_incidencia(self, inc_id):
@@ -2086,7 +2158,11 @@ class ResamaniaApp(tk.Tk):
             resultado["valor"] = var.get()
             win.destroy()
 
-        tk.Button(win, text="Aceptar", command=aceptar).pack(pady=5)
+        btn = tk.Button(win, text="Aceptar", command=aceptar)
+        btn.pack(pady=5)
+        win.bind("<Return>", lambda _e: aceptar())
+        win.bind("<Escape>", lambda _e: win.destroy())
+        self._incidencias_center_window(win)
         win.grab_set()
         win.wait_window()
         return resultado["valor"]
@@ -2124,7 +2200,7 @@ class ResamaniaApp(tk.Tk):
                     return
                 self.incidencias_selected_area = int(tags[1])
                 self._bring_to_front()
-                nombre = simpledialog.askstring("Area", "Nuevo nombre del area:", parent=self)
+                nombre = self._incidencias_prompt_text("Area", "Nuevo nombre del area:")
                 if not nombre:
                     self.incidencias_mode = None
                     return
@@ -2151,12 +2227,12 @@ class ResamaniaApp(tk.Tk):
                     return
                 self.incidencias_selected_machine = int(tags[1])
                 self._bring_to_front()
-                nombre = simpledialog.askstring("Maquina", "Nuevo nombre de la maquina:", parent=self)
+                nombre = self._incidencias_prompt_text("Maquina", "Nuevo nombre de la maquina:")
                 if not nombre:
                     self.incidencias_mode = None
                     return
-                serie = simpledialog.askstring("Maquina", "Numero de serie:", parent=self)
-                numero = simpledialog.askstring("Maquina", "Numero asignado:", parent=self)
+                serie = self._incidencias_prompt_text("Maquina", "Numero de serie:")
+                numero = self._incidencias_prompt_text("Maquina", "Numero asignado:")
                 self.incidencias_mode = ("machine_edit", self.incidencias_selected_machine, nombre, serie, numero)
                 self._bring_to_front()
                 messagebox.showinfo("Maquina", "Dibuja la nueva posicion de la maquina.", parent=self)
@@ -2175,8 +2251,8 @@ class ResamaniaApp(tk.Tk):
                         area_id = m[1]
                         break
                 self._bring_to_front()
-                elemento = simpledialog.askstring("Incidencia", "Material/elemento:", parent=self)
-                descripcion = simpledialog.askstring("Incidencia", "Describe la incidencia:", parent=self)
+                elemento = self._incidencias_prompt_text("Incidencia", "Material/elemento:")
+                descripcion = self._incidencias_prompt_text("Incidencia", "Describe la incidencia:")
                 if elemento is None and descripcion is None:
                     self.incidencias_mode = None
                     return
@@ -2200,8 +2276,8 @@ class ResamaniaApp(tk.Tk):
                     return
                 area_id = int(tags[1])
                 self._bring_to_front()
-                elemento = simpledialog.askstring("Incidencia", "Material/elemento:", parent=self)
-                descripcion = simpledialog.askstring("Incidencia", "Describe la incidencia:", parent=self)
+                elemento = self._incidencias_prompt_text("Incidencia", "Material/elemento:")
+                descripcion = self._incidencias_prompt_text("Incidencia", "Describe la incidencia:")
                 if elemento is None and descripcion is None:
                     self.incidencias_mode = None
                     return
@@ -2255,9 +2331,9 @@ class ResamaniaApp(tk.Tk):
         elif self.incidencias_mode[0] == "machine":
             area_id = self.incidencias_mode[1]
             self._bring_to_front()
-            nombre = simpledialog.askstring("Maquina", "Nombre de la maquina:", parent=self)
-            serie = simpledialog.askstring("Maquina", "Numero de serie:", parent=self)
-            numero = simpledialog.askstring("Maquina", "Numero asignado:", parent=self)
+            nombre = self._incidencias_prompt_text("Maquina", "Nombre de la maquina:")
+            serie = self._incidencias_prompt_text("Maquina", "Numero de serie:")
+            numero = self._incidencias_prompt_text("Maquina", "Numero asignado:")
             color = self._incidencias_color()
             self.incidencias_db.add_machine(area_id, nombre or "", serie or "", numero or "", int(x1), int(y1), int(x2), int(y2), color)
             self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])

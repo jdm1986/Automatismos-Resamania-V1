@@ -227,6 +227,13 @@ class IncidenciasDB:
             cur.execute("UPDATE inc_incidencias SET estado=? WHERE id=?", (estado, inc_id))
             conn.commit()
 
+
+    def update_incidencia_reporte(self, inc_id, reporte_path):
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE inc_incidencias SET reporte_path=? WHERE id=?", (reporte_path, inc_id))
+            conn.commit()
+
     def update_incidencia(self, inc_id, elemento, descripcion, estado):
         with self._connect() as conn:
             cur = conn.cursor()
