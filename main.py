@@ -93,6 +93,7 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_current_map = None
         self.incidencias_area_items = {}
         self.incidencias_machine_items = {}
+        self.incidencias_machine_area = {}
         self.incidencias_selected_area = None
         self.incidencias_selected_machine = None
         self.incidencias_mode = None
@@ -100,6 +101,13 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_draw_rect = None
         self.incidencias_panel_mode = None
         self.incidencias_color_used = set()
+
+        self.incidencias_info_filter_area = None
+        self.incidencias_area_title = None
+        self.incidencias_btn_vista_general = None
+        self.incidencias_hover_blink_item = None
+        self.incidencias_hover_blink_after = None
+        self.incidencias_hover_blink_original = None
 
         self.create_widgets()
         self.cargar_clientes_ext()
@@ -1321,15 +1329,23 @@ class ResamaniaApp(tk.Tk):
 
         canvas_container = tk.Frame(body)
         canvas_container.grid(row=0, column=1, sticky="nsew")
-        canvas_container.rowconfigure(0, weight=1)
+        canvas_container.rowconfigure(1, weight=1)
         canvas_container.columnconfigure(0, weight=1)
 
+        header = tk.Frame(canvas_container)
+        header.grid(row=0, column=0, sticky="ew")
+        header.columnconfigure(0, weight=1)
+        self.incidencias_area_title = tk.Label(header, text="", font=("Arial", 11, "bold"))
+        self.incidencias_area_title.pack(side="left", padx=6)
+        self.incidencias_btn_vista_general = tk.Button(header, text="VISTA GENERAL", command=self.incidencias_vista_general)
+        self.incidencias_btn_vista_general.configure(state="disabled")
+
         self.incidencias_canvas = tk.Canvas(canvas_container, bg="white")
-        self.incidencias_canvas.grid(row=0, column=0, sticky="nsew")
+        self.incidencias_canvas.grid(row=1, column=0, sticky="nsew")
         canvas_y = ttk.Scrollbar(canvas_container, orient="vertical", command=self.incidencias_canvas.yview)
-        canvas_y.grid(row=0, column=1, sticky="ns")
+        canvas_y.grid(row=1, column=1, sticky="ns")
         canvas_x = ttk.Scrollbar(canvas_container, orient="horizontal", command=self.incidencias_canvas.xview)
-        canvas_x.grid(row=1, column=0, sticky="ew")
+        canvas_x.grid(row=2, column=0, sticky="ew")
         self.incidencias_canvas.configure(yscrollcommand=canvas_y.set, xscrollcommand=canvas_x.set)
         self.incidencias_canvas.bind("<ButtonPress-1>", self.incidencias_canvas_press)
         self.incidencias_canvas.bind("<B1-Motion>", self.incidencias_canvas_drag)
@@ -1367,6 +1383,143 @@ class ResamaniaApp(tk.Tk):
             if color not in self.incidencias_color_used:
                 self.incidencias_color_used.add(color)
                 return color
+    def _incidencias_set_area_header(self, area_id):
+        if not self.incidencias_area_title or not self.incidencias_btn_vista_general:
+            return
+        if not self.incidencias_current_map:
+            self.incidencias_area_title.configure(text="")
+            if self.incidencias_btn_vista_general.winfo_ismapped():
+                self.incidencias_btn_vista_general.pack_forget()
+            return
+        if area_id:
+            nombre = None
+            for area in self.incidencias_db.list_areas(self.incidencias_current_map):
+                if area[0] == area_id:
+                    nombre = area[1]
+                    break
+            self.incidencias_area_title.configure(text=nombre or "")
+            self.incidencias_btn_vista_general.configure(state="normal")
+            if not self.incidencias_btn_vista_general.winfo_ismapped():
+                self.incidencias_btn_vista_general.pack(side="left", padx=6)
+        else:
+            self.incidencias_area_title.configure(text="")
+            self.incidencias_btn_vista_general.configure(state="disabled")
+            if self.incidencias_btn_vista_general.winfo_ismapped():
+                self.incidencias_btn_vista_general.pack_forget()
+
+    def _incidencias_apply_map_filter(self, area_id):
+        if not self.incidencias_current_map:
+            return
+        for aid, item in self.incidencias_area_items.items():
+            if area_id:
+                self.incidencias_canvas.itemconfig(item, state="hidden")
+            else:
+                self.incidencias_canvas.itemconfig(item, state="normal")
+        for mid, item in self.incidencias_machine_items.items():
+            if area_id and self.incidencias_machine_area.get(mid) != area_id:
+                self.incidencias_canvas.itemconfig(item, state="hidden")
+            else:
+                self.incidencias_canvas.itemconfig(item, state="normal")
+
+    def _incidencias_start_hover_blink(self, mid):
+        if not mid or mid not in self.incidencias_machine_items:
+            self._incidencias_stop_hover_blink()
+            return
+        item_id = self.incidencias_machine_items[mid]
+        if self.incidencias_canvas.itemcget(item_id, "state") == "hidden":
+            return
+        if self.incidencias_hover_blink_item == item_id:
+            return
+        self._incidencias_stop_hover_blink()
+        self.incidencias_hover_blink_item = item_id
+        outline = self.incidencias_canvas.itemcget(item_id, "outline")
+        width = int(float(self.incidencias_canvas.itemcget(item_id, "width") or 2))
+        self.incidencias_hover_blink_original = (item_id, outline, width)
+
+        def toggle(show):
+            if self.incidencias_hover_blink_item != item_id:
+                return
+            if show:
+                self.incidencias_canvas.itemconfig(item_id, outline=outline, width=max(width + 2, 4))
+            else:
+                self.incidencias_canvas.itemconfig(item_id, outline="", width=width)
+            self.incidencias_hover_blink_after = self.after(350, lambda: toggle(not show))
+
+        toggle(True)
+
+    def _incidencias_stop_hover_blink(self):
+        if self.incidencias_hover_blink_after:
+            try:
+                self.after_cancel(self.incidencias_hover_blink_after)
+            except Exception:
+                pass
+        self.incidencias_hover_blink_after = None
+        if self.incidencias_hover_blink_original:
+            item_id, outline, width = self.incidencias_hover_blink_original
+            if self.incidencias_hover_blink_item == item_id:
+                self.incidencias_canvas.itemconfig(item_id, outline=outline, width=width)
+        self.incidencias_hover_blink_item = None
+        self.incidencias_hover_blink_original = None
+
+    def incidencias_vista_general(self):
+        self.incidencias_info_filter_area = None
+        self._incidencias_set_area_header(None)
+        self._incidencias_apply_map_filter(None)
+        self.incidencias_info_maquinas(None)
+
+    def _incidencias_pedir_reporte_visual(self):
+        self._bring_to_front()
+        if not messagebox.askyesno("Incidencia", "Tiene reporte visual?", parent=self):
+            return ""
+        ruta = filedialog.askopenfilename(
+            parent=self,
+            title="Selecciona reporte visual",
+            filetypes=[
+                ("Imagenes", "*.png;*.jpg;*.jpeg;*.gif;*.bmp"),
+                ("Video", "*.mp4;*.avi;*.mov;*.mkv;*.wmv"),
+                ("Todos", "*.*"),
+            ],
+        )
+        if not ruta:
+            return ""
+        try:
+            reports_dir = os.path.join("data", "incidencias_reportes")
+            os.makedirs(reports_dir, exist_ok=True)
+            ext = os.path.splitext(ruta)[1]
+            destino = os.path.join(reports_dir, f"reporte_{uuid.uuid4().hex}{ext}")
+            shutil.copy2(ruta, destino)
+            return destino
+        except Exception:
+            return ruta
+
+    def _incidencias_ver_reporte(self, ruta):
+        if not ruta or not os.path.exists(ruta):
+            messagebox.showwarning("Reporte visual", "No se encontro el archivo del reporte.", parent=self)
+            return
+        try:
+            os.startfile(ruta)
+        except Exception as exc:
+            messagebox.showerror("Reporte visual", f"No se pudo abrir el reporte.\nDetalle: {exc}", parent=self)
+
+    def _incidencias_guardar_reporte(self, ruta):
+        if not ruta or not os.path.exists(ruta):
+            messagebox.showwarning("Reporte visual", "No se encontro el archivo del reporte.", parent=self)
+            return
+        filename = os.path.basename(ruta)
+        destino = filedialog.asksaveasfilename(
+            parent=self,
+            title="Guardar reporte visual",
+            initialfile=filename,
+            defaultextension=os.path.splitext(filename)[1],
+        )
+        if not destino:
+            return
+        try:
+            shutil.copy2(ruta, destino)
+            messagebox.showinfo("Reporte visual", f"Reporte guardado en: {destino}", parent=self)
+        except Exception as exc:
+            messagebox.showerror("Reporte visual", f"No se pudo guardar el reporte.\nDetalle: {exc}", parent=self)
+
 
     def incidencias_cargar_listado_mapas(self):
         self.incidencias_mapas = self.incidencias_db.list_maps()
@@ -1454,6 +1607,7 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_canvas.delete("all")
         self.incidencias_area_items = {}
         self.incidencias_machine_items = {}
+        self.incidencias_machine_area = {}
         img = Image.open(ruta)
         self.incidencias_img = ImageTk.PhotoImage(img)
         self.incidencias_canvas.create_image(0, 0, anchor="nw", image=self.incidencias_img)
@@ -1470,6 +1624,8 @@ class ResamaniaApp(tk.Tk):
             self.incidencias_color_used.add(color)
             item = self.incidencias_canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=2, tags=("machine", str(mid)))
             self.incidencias_machine_items[mid] = item
+            self.incidencias_machine_area[mid] = area_id
+        self._incidencias_apply_map_filter(self.incidencias_info_filter_area)
 
     def incidencias_asignar_area(self):
         if not self._incidencias_pin_ok():
@@ -1514,6 +1670,9 @@ class ResamaniaApp(tk.Tk):
         else:
             self.incidencias_info_filter_area = area_id
 
+        self._incidencias_set_area_header(self.incidencias_info_filter_area)
+        self._incidencias_apply_map_filter(self.incidencias_info_filter_area)
+
         for w in self.incidencias_panel.winfo_children():
             w.destroy()
         container = tk.Frame(self.incidencias_panel)
@@ -1549,12 +1708,12 @@ class ResamaniaApp(tk.Tk):
         def on_hover(event):
             row = tree.identify_row(event.y)
             if not row:
-                self._incidencias_resaltar_maquina(None)
+                self._incidencias_stop_hover_blink()
                 return
-            self._incidencias_resaltar_maquina(int(row))
+            self._incidencias_start_hover_blink(int(row))
 
         def on_leave(event):
-            self._incidencias_resaltar_maquina(None)
+            self._incidencias_stop_hover_blink()
 
         def copy_cell(event):
             row = tree.identify_row(event.y)
@@ -1575,8 +1734,10 @@ class ResamaniaApp(tk.Tk):
             if not row:
                 return
             mid = int(row)
+            if not self._incidencias_pin_ok():
+                return
             self._bring_to_front()
-            if not messagebox.askyesno("Eliminar", "Eliminar maquina y todos sus datosN", parent=self):
+            if not messagebox.askyesno("Eliminar", "Eliminar maquina y todos sus datos?", parent=self):
                 return
             self.incidencias_db.delete_machine(mid)
             self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
@@ -1593,7 +1754,7 @@ class ResamaniaApp(tk.Tk):
 
     def incidencias_crear_incidencia(self):
         self._bring_to_front()
-        respuesta = messagebox.askyesno("Incidencia", "Es sobre una maquinaN", parent=self)
+        respuesta = messagebox.askyesno("Incidencia", "Es sobre una maquina?", parent=self)
         if respuesta:
             self.incidencias_mode = ("inc_maquina",)
             self._bring_to_front()
@@ -1605,11 +1766,14 @@ class ResamaniaApp(tk.Tk):
 
     def incidencias_gestion_incidencias(self):
         self.incidencias_panel_mode = "incidencias"
+        self.incidencias_info_filter_area = None
+        self._incidencias_set_area_header(None)
+        self._incidencias_apply_map_filter(None)
         for w in self.incidencias_panel.winfo_children():
             w.destroy()
         if not self.incidencias_current_map:
             return
-        cols = ["fecha", "estado", "area", "maquina", "serie", "numero", "elemento", "descripcion"]
+        cols = ["fecha", "estado", "area", "maquina", "serie", "numero", "elemento", "descripcion", "reporte"]
         container = tk.Frame(self.incidencias_panel)
         container.pack(fill="both", expand=True)
         tree = ttk.Treeview(container, columns=cols, show="headings")
@@ -1624,6 +1788,7 @@ class ResamaniaApp(tk.Tk):
         tree.column("numero", width=100, stretch=True)
         tree.column("elemento", width=120, stretch=True)
         tree.column("descripcion", width=260, stretch=True)
+        tree.column("reporte", width=70, stretch=False)
         tree.grid(row=0, column=0, sticky="nsew")
         container.rowconfigure(0, weight=1)
         container.columnconfigure(0, weight=1)
@@ -1636,7 +1801,7 @@ class ResamaniaApp(tk.Tk):
         tree.tag_configure("reparado", background="#d4edda")
         self.incidencias_area_to_inc = {}
         for inc in self.incidencias_db.list_incidencias(self.incidencias_current_map):
-            inc_id, fecha, estado, elemento, descripcion, area, maquina, serie, numero = inc
+            inc_id, fecha, estado, elemento, descripcion, reporte_path, area, maquina, serie, numero = inc
             tag = ""
             if estado == "PENDIENTE":
                 tag = "pendiente"
@@ -1647,7 +1812,7 @@ class ResamaniaApp(tk.Tk):
             tree.insert(
                 "",
                 "end",
-                values=[fecha, estado, area or "", maquina or "", serie or "", numero or "", elemento or "", descripcion or ""],
+                values=[fecha, estado, area or "", maquina or "", serie or "", numero or "", elemento or "", descripcion or "", ("[R]" if reporte_path else "")],
                 iid=str(inc_id),
                 tags=(tag,),
             )
@@ -1657,6 +1822,7 @@ class ResamaniaApp(tk.Tk):
                 "serie": serie,
                 "numero": numero,
                 "descripcion": descripcion,
+                "reporte": reporte_path,
             }
             if area:
                 self.incidencias_area_to_inc.setdefault(area, []).append(inc_id)
@@ -1703,6 +1869,10 @@ class ResamaniaApp(tk.Tk):
             menu.add_command(label="Modificar Incidencia", command=lambda: self._incidencias_editar_incidencia(int(item)))
             menu.add_command(label="Eliminar Incidencia", command=lambda: self._incidencias_eliminar_incidencia(int(item)))
             menu.add_command(label="Modificar Estado", command=lambda: self._incidencias_cambiar_estado(int(item)))
+            reporte = self.incidencias_inc_map.get(int(item), {}).get("reporte")
+            if reporte:
+                menu.add_command(label="Ver reporte visual", command=lambda: self._incidencias_ver_reporte(reporte))
+                menu.add_command(label="Guardar reporte visual", command=lambda: self._incidencias_guardar_reporte(reporte))
             menu.add_command(label="Copiar", command=lambda: copy_cell(event))
             menu.post(event.x_root, event.y_root)
 
@@ -1879,7 +2049,15 @@ class ResamaniaApp(tk.Tk):
 
     def _incidencias_eliminar_incidencia(self, inc_id):
         self._bring_to_front()
-        if messagebox.askyesno("Eliminar", "Eliminar incidenciaN", parent=self):
+        if messagebox.askyesno("Eliminar", "Eliminar incidencia?", parent=self):
+            reporte = None
+            if hasattr(self, "incidencias_inc_map"):
+                reporte = self.incidencias_inc_map.get(inc_id, {}).get("reporte")
+            if reporte and os.path.exists(reporte):
+                try:
+                    os.remove(reporte)
+                except Exception:
+                    pass
             self.incidencias_db.delete_incidencia(inc_id)
             self.incidencias_gestion_incidencias()
 
@@ -2002,7 +2180,15 @@ class ResamaniaApp(tk.Tk):
                 if elemento is None and descripcion is None:
                     self.incidencias_mode = None
                     return
-                self.incidencias_db.add_incident(self.incidencias_current_map, area_id, mid, elemento or "", descripcion or "")
+                reporte_path = self._incidencias_pedir_reporte_visual()
+                self.incidencias_db.add_incident(
+                    self.incidencias_current_map,
+                    area_id,
+                    mid,
+                    elemento or "",
+                    descripcion or "",
+                    reporte_path=reporte_path,
+                )
                 self.incidencias_gestion_incidencias()
                 self.incidencias_mode = None
                 return
@@ -2019,7 +2205,15 @@ class ResamaniaApp(tk.Tk):
                 if elemento is None and descripcion is None:
                     self.incidencias_mode = None
                     return
-                self.incidencias_db.add_incident(self.incidencias_current_map, area_id, None, elemento or "", descripcion or "")
+                reporte_path = self._incidencias_pedir_reporte_visual()
+                self.incidencias_db.add_incident(
+                    self.incidencias_current_map,
+                    area_id,
+                    None,
+                    elemento or "",
+                    descripcion or "",
+                    reporte_path=reporte_path,
+                )
                 self.incidencias_gestion_incidencias()
                 self.incidencias_mode = None
                 return
@@ -2071,6 +2265,7 @@ class ResamaniaApp(tk.Tk):
             mid, nombre, serie, numero = self.incidencias_mode[1], self.incidencias_mode[2], self.incidencias_mode[3], self.incidencias_mode[4]
             self.incidencias_db.update_machine(mid, nombre or "", serie or "", numero or "", int(x1), int(y1), int(x2), int(y2))
             self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
+        self.incidencias_vista_general()
         self.incidencias_mode = None
 
     def exportar_excel(self):

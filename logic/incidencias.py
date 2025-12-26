@@ -64,12 +64,17 @@ class IncidenciasDB:
                     elemento TEXT,
                     descripcion TEXT,
                     estado TEXT,
+                    reporte_path TEXT,
                     FOREIGN KEY(mapa_id) REFERENCES inc_mapas(id),
                     FOREIGN KEY(area_id) REFERENCES inc_areas(id),
                     FOREIGN KEY(maquina_id) REFERENCES inc_maquinas(id)
                 )
                 """
             )
+            cur.execute("PRAGMA table_info(inc_incidencias)")
+            cols = [row[1] for row in cur.fetchall()]
+            if "reporte_path" not in cols:
+                cur.execute("ALTER TABLE inc_incidencias ADD COLUMN reporte_path TEXT")
             conn.commit()
 
     def add_map(self, nombre, ruta, ancho, alto):
@@ -178,13 +183,13 @@ class IncidenciasDB:
             cur.execute("DELETE FROM inc_maquinas WHERE id=?", (machine_id,))
             conn.commit()
 
-    def add_incident(self, mapa_id, area_id, maquina_id, elemento, descripcion, estado="PENDIENTE"):
+    def add_incident(self, mapa_id, area_id, maquina_id, elemento, descripcion, estado="PENDIENTE", reporte_path=""):
         with self._connect() as conn:
             cur = conn.cursor()
             cur.execute(
                 """
-                INSERT INTO inc_incidencias (mapa_id, area_id, maquina_id, fecha, elemento, descripcion, estado)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO inc_incidencias (mapa_id, area_id, maquina_id, fecha, elemento, descripcion, estado, reporte_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     mapa_id,
@@ -194,6 +199,7 @@ class IncidenciasDB:
                     elemento,
                     descripcion,
                     estado,
+                    reporte_path,
                 ),
             )
             conn.commit()
@@ -203,7 +209,7 @@ class IncidenciasDB:
             cur = conn.cursor()
             cur.execute(
                 """
-                SELECT i.id, i.fecha, i.estado, i.elemento, i.descripcion,
+                SELECT i.id, i.fecha, i.estado, i.elemento, i.descripcion, i.reporte_path,
                        a.nombre, m.nombre, m.serie, m.numero_asignado
                 FROM inc_incidencias i
                 LEFT JOIN inc_areas a ON a.id = i.area_id
