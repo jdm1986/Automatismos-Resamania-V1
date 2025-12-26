@@ -13,6 +13,8 @@ from datetime import datetime
 import re
 import urllib.parse
 import webbrowser
+import shutil
+import random
 from logic.wizville import procesar_wizville
 from logic.accesos import procesar_accesos_dobles, procesar_accesos_descuadrados, procesar_salidas_pmr_no_autorizadas, \
     procesar_morosos_accediendo
@@ -21,6 +23,7 @@ from logic.avanza_fit import obtener_avanza_fit
 from logic.cumpleanos import obtener_cumpleanos_hoy
 from utils.file_loader import load_data_file
 from logic.impagos import ImpagosDB
+from logic.incidencias import IncidenciasDB
 
 CONFIG_PATH = "config.json"
 
@@ -81,6 +84,23 @@ class ResamaniaApp(tk.Tk):
         self.impagos_last_export = None
         self.impagos_view = tk.StringVar(value="actuales")
 
+        # Incidencias Club
+        self.incidencias_db = IncidenciasDB(os.path.join("data", "incidencias.db"))
+        self.incidencias_mapas = []
+        self.incidencias_map_index = 0
+        self.incidencias_img = None
+        self.incidencias_canvas = None
+        self.incidencias_current_map = None
+        self.incidencias_area_items = {}
+        self.incidencias_machine_items = {}
+        self.incidencias_selected_area = None
+        self.incidencias_selected_machine = None
+        self.incidencias_mode = None
+        self.incidencias_draw_start = None
+        self.incidencias_draw_rect = None
+        self.incidencias_panel_mode = None
+        self.incidencias_color_used = set()
+
         self.create_widgets()
         self.cargar_clientes_ext()
         self.cargar_prestamos_json()
@@ -125,6 +145,7 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="EXTRAER ACCESOS", command=self.extraer_accesos, fg="#0066cc").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="IR A PRÉSTAMOS", command=lambda: self.notebook.select(self.tabs.get("Prestamos")), bg="#ff9800", fg="black").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="IR A IMPAGOS", command=self.ir_a_impagos, bg="#ff6b6b", fg="black").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=lambda: self.notebook.select(self.tabs.get("Incidencias Club")), bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(expand=1, fill='both')
@@ -143,6 +164,7 @@ class ResamaniaApp(tk.Tk):
             "Accesos Cliente": "#cfe2f3",
             "Prestamos": "#ffb74d",
             "Impagos": "#ff6b6b",
+            "Incidencias Club": "#424242",
         }
         self.tab_icons = {}
 
@@ -150,7 +172,7 @@ class ResamaniaApp(tk.Tk):
         for tab_name in [
             "Wizville", "Accesos Dobles", "Accesos Descuadrados",
             "Salidas PMR No Autorizadas", "Morosos Accediendo", "Socios Ultimate", "Socios Yanga",
-            "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos"
+            "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club"
         ]:
             tab = ttk.Frame(self.notebook)
             color = tab_colors.get(tab_name, "#cccccc")
@@ -163,6 +185,8 @@ class ResamaniaApp(tk.Tk):
                 self.create_prestamos_tab(tab)
             elif tab_name == "Impagos":
                 self.create_impagos_tab(tab)
+            elif tab_name == "Incidencias Club":
+                self.create_incidencias_tab(tab)
             else:
                 self.create_table(tab)
             if tab_name == "Impagos":
@@ -428,7 +452,7 @@ class ResamaniaApp(tk.Tk):
                 cliente = ext[0].copy()
                 cliente["movil"] = self._normalizar_movil(cliente.get("movil", ""))
             else:
-                if not messagebox.askyesno("Cliente no encontrado", f"No hay cliente {codigo}. ¿Registrar manualmente?"):
+                if not messagebox.askyesno("Cliente no encontrado", f"No hay cliente {codigo}. Registrar manualmente?"):
                     return
                 nombre = self._pedir_campo("Nombre", "Introduce el nombre:", obligatorio=True, validar_nombre=True)
                 if nombre is None:
@@ -478,7 +502,7 @@ class ResamaniaApp(tk.Tk):
         # Pregunta si quiere marcar uno como devuelto
         if not messagebox.askyesno(
             "Pendientes multiples",
-            f"El cliente {codigo} tiene {len(pendientes)} préstamos sin devolver.\n¿Quieres marcar uno como devuelto ahora?"
+            f"El cliente {codigo} tiene {len(pendientes)} préstamos sin devolver.\nQuieres marcar uno como devuelto ahora?"
         ):
             return
 
@@ -635,7 +659,7 @@ class ResamaniaApp(tk.Tk):
             messagebox.showwarning("Sin material", "Escribe el material prestado.")
             return
         # Evitar que peguen un número de cliente en el campo de material
-        if re.fullmatch(r"[cC]?\d+", material):
+        if re.fullmatch(r"[cC]u\d+", material):
             messagebox.showwarning(
                 "Material inválido",
                 "Has puesto un número de cliente en 'Material prestado'. Vuelve a intentarlo."
@@ -650,7 +674,7 @@ class ResamaniaApp(tk.Tk):
             resp = messagebox.askyesno(
                 "Limite de prestamos",
                 f"El cliente {codigo} ya tiene {len(pendientes)} prestamos sin devolver.\n"
-                "¿Introducir código de seguridad para liberar y permitir otro préstamo?"
+                "Introducir codigo de seguridad para liberar y permitir otro prestamo?"
             )
             if not resp:
                 return
@@ -767,7 +791,7 @@ class ResamaniaApp(tk.Tk):
             "En caso de que vuelva a ocurrir, no podremos ofrecer este servicio. Gracias por colaborar."
         )
         try:
-            url = f"https://wa.me/{movil}?text={urllib.parse.quote(texto)}"
+            url = f"https://wa.me/{movil}utext={urllib.parse.quote(texto)}"
             webbrowser.open(url)
         except Exception as e:
             messagebox.showerror("WhatsApp", f"No se pudo abrir el enlace: {e}")
@@ -1116,14 +1140,14 @@ class ResamaniaApp(tk.Tk):
                 )
                 mail.HTMLBody = cuerpo_html.replace("{{CID}}", cid)
             else:
-                mail.HTMLBody = cuerpo_html.replace("<img src=\"cid:{{CID}}\" alt=\"Paga deuda\" style=\"max-width:100%;\">", "")
+                mail.HTMLBody = cuerpo_html.replace('<img src="cid:{{CID}}" alt="Paga deuda" style="max-width:100%;">', "")
 
             mail.Display()
         except Exception as e:
-            messagebox.showerror("Outlook", f"No se pudo crear el correo: {e}")
+            messagebox.showerror("Outlook", f"No se pudo crear el correo: {e}", parent=self)
             return
 
-        if not messagebox.askyesno("Confirmación", "¿Ha enviado el email?"):
+        if not messagebox.askyesno("Confirmacion", "Ha enviado el email?", parent=self):
             return
         if not emails:
             return
@@ -1181,14 +1205,14 @@ class ResamaniaApp(tk.Tk):
                 )
                 mail.HTMLBody = html.replace("{{CID}}", cid)
             else:
-                mail.HTMLBody = html.replace("<img src=\"cid:{{CID}}\" alt=\"Pago hecho\" style=\"max-width:100%;\">", "")
+                mail.HTMLBody = html.replace('<img src="cid:{{CID}}" alt="Pago hecho" style="max-width:100%;">', "")
 
             mail.Display()
         except Exception as e:
-            messagebox.showerror("Outlook", f"No se pudo crear el correo: {e}")
+            messagebox.showerror("Outlook", f"No se pudo crear el correo: {e}", parent=self)
             return
 
-        if not messagebox.askyesno("Confirmación", "¿Ha enviado el email de resueltos?"):
+        if not messagebox.askyesno("Confirmacion", "Ha enviado el email de resueltos?", parent=self):
             return
         if not emails:
             return
@@ -1201,44 +1225,43 @@ class ResamaniaApp(tk.Tk):
 
     def _impagos_email_html(self, plantilla):
         wa = "https://wa.me/34681872664"
-        wa_link = f"<a href=\"{wa}\">{wa}</a>"
+        wa_link = f'<a href="{wa}">{wa}</a>'
         if plantilla == "1inc":
-            texto = (
-                "👋 ¡Hola! Tienes un recibo pendiente de pago y el torno no permitirá el acceso 😢<br><br>"
-                "🔸Si vienes de 6 a 9 am (horario sin atención comercial), te recomendamos pasar por recepción a partir de las 9 am "
-                "para solucionarlo lo antes posible 🙂.<br><br>"
-                "🔸Puedes abonar en efectivo💶 o con tarjeta 💳, incluso abonarlo desde la propia aplicación. Aquí te mostramos como más abajo.<br>"
-                "🗓 Recuerda: puedes anticipar el pago entre 5 y 15 días antes de tu siguiente día de pago que siempre podrás consultar en tu APP Fitness Park.<br>"
-                f"📲 Dudas? PREGÚNTANOS al whatsapp ({wa_link}) o contestando este email."
+            texto = "<br>".join(
+                [
+                    "Hola! Tienes un recibo pendiente de pago y el torno no permitira el acceso.",
+                    "Si vienes de 6 a 9 am (horario sin atencion comercial), te recomendamos pasar por recepcion a partir de las 9 am para solucionarlo lo antes posible.",
+                    "Puedes abonar en efectivo o con tarjeta, incluso abonarlo desde la propia aplicacion. Aqui te mostramos como mas abajo.",
+                    "Recuerda: puedes anticipar el pago entre 5 y 15 dias antes de tu siguiente dia de pago que siempre podras consultar en tu APP Fitness Park.",
+                    f"Dudasu PREGUNTANOS al whatsapp ({wa_link}) o contestando este email.",
+                ]
             )
         else:
-            texto = (
-                "Hemos detectado que actualmente tienes 2 recibos o más pendientes en tu cuenta de socio/a.<br><br>"
-                "Queremos ayudarte a regularizar tu situación lo antes posible para que puedas seguir disfrutando de todas las instalaciones "
-                "sin inconvenientes, evitando que el sistema derive tu caso a la empresa de recobros PayPymes.<br><br>"
-                "💡 Opciones para abonar:<br>"
-                "💳 Tarjeta o 💶 efectivo en recepción.<br><br>"
-                "📱 Directamente desde tu APP Fitness Park, en “Espacio de cliente” → “Pagos”. (Te mostramos cómo más abajo)<br><br>"
-                "⚠ Aviso importante: En caso de que se genere un tercer recibo impagado, desde el club dejaremos de emitir advertencias y tu expediente "
-                "el sistema lo derivará directamente a nuestra empresa colaboradora de recobros Paypymes, que se pondrá en contacto contigo para gestionar la deuda.<br><br>"
-                "🗓 Recuerda: puedes anticipar el pago entre 5 y 15 días antes de tu siguiente día de pago que siempre podrás consultar en tu APP Fitness Park, "
-                "en el icono espacio de cliente y luego en el apartado “PAGOS”.<br><br>"
-                "🙏 Te animamos a ponerte al día lo antes posible para evitar cualquier gestión externa y que todo siga con normalidad. "
-                "Estamos a tu disposición en recepción para cualquier duda.<br><br>"
-                f"📲 Dudas? PREGÚNTANOS por whatsapp ({wa_link}) o contestando este email."
+            texto = "<br>".join(
+                [
+                    "Hemos detectado que actualmente tienes 2 recibos o mas pendientes en tu cuenta de socio/a.",
+                    "Queremos ayudarte a regularizar tu situacion lo antes posible para que puedas seguir disfrutando de todas las instalaciones sin inconvenientes, evitando que el sistema derive tu caso a la empresa de recobros PayPymes.",
+                    "Opciones para abonar:",
+                    "Tarjeta o efectivo en recepcion.",
+                    "Directamente desde tu APP Fitness Park, en 'Espacio de cliente' -> 'Pagos'. (Te mostramos como mas abajo)",
+                    "Aviso importante: En caso de que se genere un tercer recibo impagado, desde el club dejaremos de emitir advertencias y tu expediente el sistema lo derivara directamente a nuestra empresa colaboradora de recobros Paypymes, que se pondra en contacto contigo para gestionar la deuda.",
+                    "Recuerda: puedes anticipar el pago entre 5 y 15 dias antes de tu siguiente dia de pago que siempre podras consultar en tu APP Fitness Park, en el icono espacio de cliente y luego en el apartado 'PAGOS'.",
+                    "Te animamos a ponerte al dia lo antes posible para evitar cualquier gestion externa y que todo siga con normalidad. Estamos a tu disposicion en recepcion para cualquier duda.",
+                    f"Dudasu PREGUNTANOS por whatsapp ({wa_link}) o contestando este email.",
+                ]
             )
         return (
-            "<div style=\"font-family:Arial,sans-serif;font-size:14px;\">"
+            '<div style="font-family:Arial,sans-serif;font-size:14px;">'
             f"{texto}<br><br>"
-            "<img src=\"cid:{{CID}}\" alt=\"Paga deuda\" style=\"max-width:100%;\">"
+            '<img src="cid:{{CID}}" alt="Paga deuda" style="max-width:100%;">'
             "</div>"
         )
 
     def _impagos_email_imagen_html(self):
         return (
-            "<div style=\"font-family:Arial,sans-serif;font-size:14px;\">"
-            "<img src=\"cid:{{CID}}\" alt=\"Pago hecho\" style=\"max-width:100%;\">"
-            "</div>"
+            '<div style="font-family:Arial,sans-serif;font-size:14px;">'
+            '<img src="cid:{{CID}}" alt="Pago hecho" style="max-width:100%;">'
+            '</div>'
         )
 
     def ir_a_impagos(self):
@@ -1246,7 +1269,7 @@ class ResamaniaApp(tk.Tk):
         if pin is None:
             return
         if pin.strip() != get_security_code():
-            messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
+            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
             return
         tab = self.tabs.get("Impagos")
         if tab:
@@ -1264,13 +1287,799 @@ class ResamaniaApp(tk.Tk):
             except Exception:
                 pass
 
+    # -----------------------------
+    # INCIDENCIAS CLUB
+    # -----------------------------
+    def create_incidencias_tab(self, tab):
+        frm = tk.Frame(tab)
+        frm.pack(fill="both", expand=True, padx=10, pady=10)
+
+        botones = tk.Frame(frm)
+        botones.pack(fill="x", pady=4)
+        tk.Button(botones, text="Cargar Mapas", command=self.incidencias_cargar_mapas).pack(side="left", padx=5)
+        tk.Button(botones, text="Borrar Mapa", command=self.incidencias_borrar_mapa).pack(side="left", padx=5)
+        self.btn_mapa_anterior = tk.Button(botones, text="Mapa anterior", command=self.incidencias_mapa_anterior)
+        self.btn_mapa_anterior.pack(side="left", padx=5)
+        self.btn_mapa_siguiente = tk.Button(botones, text="Mapas", command=self.incidencias_siguiente_mapa)
+        self.btn_mapa_siguiente.pack(side="left", padx=5)
+        tk.Button(botones, text="Asignar Área", command=self.incidencias_asignar_area).pack(side="left", padx=5)
+        tk.Button(botones, text="Editar Área", command=self.incidencias_editar_area).pack(side="left", padx=5)
+        tk.Button(botones, text="Listar Máquina", command=self.incidencias_listar_maquina).pack(side="left", padx=5)
+        tk.Button(botones, text="Editar Máquina", command=self.incidencias_editar_maquina).pack(side="left", padx=5)
+        tk.Button(botones, text="Info máquinas", command=self.incidencias_info_maquinas).pack(side="left", padx=5)
+        tk.Button(botones, text="Crear Incidencia", command=self.incidencias_crear_incidencia).pack(side="left", padx=5)
+        tk.Button(botones, text="Gestión Incidencias", command=self.incidencias_gestion_incidencias).pack(side="left", padx=5)
+
+        body = tk.Frame(frm)
+        body.pack(fill="both", expand=True)
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=2)
+        body.rowconfigure(0, weight=1)
+
+        self.incidencias_panel = tk.Frame(body, bd=1, relief="solid")
+        self.incidencias_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+
+        canvas_container = tk.Frame(body)
+        canvas_container.grid(row=0, column=1, sticky="nsew")
+        canvas_container.rowconfigure(0, weight=1)
+        canvas_container.columnconfigure(0, weight=1)
+
+        self.incidencias_canvas = tk.Canvas(canvas_container, bg="white")
+        self.incidencias_canvas.grid(row=0, column=0, sticky="nsew")
+        canvas_y = ttk.Scrollbar(canvas_container, orient="vertical", command=self.incidencias_canvas.yview)
+        canvas_y.grid(row=0, column=1, sticky="ns")
+        canvas_x = ttk.Scrollbar(canvas_container, orient="horizontal", command=self.incidencias_canvas.xview)
+        canvas_x.grid(row=1, column=0, sticky="ew")
+        self.incidencias_canvas.configure(yscrollcommand=canvas_y.set, xscrollcommand=canvas_x.set)
+        self.incidencias_canvas.bind("<ButtonPress-1>", self.incidencias_canvas_press)
+        self.incidencias_canvas.bind("<B1-Motion>", self.incidencias_canvas_drag)
+        self.incidencias_canvas.bind("<ButtonRelease-1>", self.incidencias_canvas_release)
+        self.incidencias_canvas.bind("<Motion>", self.incidencias_canvas_hover)
+        self.incidencias_canvas.bind("<Leave>", self.incidencias_canvas_leave)
+
+        self.incidencias_cargar_listado_mapas()
+        self.incidencias_gestion_incidencias()
+
+    def _incidencias_pin_ok(self):
+        self._bring_to_front()
+        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
+        if pin is None:
+            return False
+        if pin.strip() != get_security_code():
+            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
+            return False
+        return True
+
+    def _incidencias_color(self):
+        palette = [
+            "#e57373", "#f06292", "#ba68c8", "#9575cd", "#7986cb", "#64b5f6",
+            "#4fc3f7", "#4dd0e1", "#4db6ac", "#81c784", "#aed581", "#dce775",
+            "#fff176", "#ffd54f", "#ffb74d", "#ff8a65",
+        ]
+        for _ in range(100):
+            color = random.choice(palette)
+            if color not in self.incidencias_color_used:
+                self.incidencias_color_used.add(color)
+                return color
+        # Fallback aleatorio
+        while True:
+            color = f"#{random.randint(0, 0xFFFFFF):06x}"
+            if color not in self.incidencias_color_used:
+                self.incidencias_color_used.add(color)
+                return color
+
+    def incidencias_cargar_listado_mapas(self):
+        self.incidencias_mapas = self.incidencias_db.list_maps()
+        self.incidencias_map_index = 0
+        if self.incidencias_mapas:
+            self.incidencias_mostrar_mapa(self.incidencias_mapas[0])
+        else:
+            self.incidencias_canvas.delete("all")
+            self.incidencias_current_map = None
+        self.incidencias_actualizar_botones_mapa()
+
+    def incidencias_actualizar_botones_mapa(self):
+        if not hasattr(self, "btn_mapa_anterior"):
+            return
+        if len(self.incidencias_mapas) <= 1:
+            self.btn_mapa_anterior.configure(state="disabled")
+            self.btn_mapa_siguiente.configure(state="disabled")
+        else:
+            self.btn_mapa_anterior.configure(state="normal")
+            self.btn_mapa_siguiente.configure(state="normal")
+
+    def incidencias_cargar_mapas(self):
+        if not self._incidencias_pin_ok():
+            return
+        self._bring_to_front()
+        cantidad = simpledialog.askinteger("Mapas", "Cuantos mapas quieres cargar?", minvalue=1, maxvalue=20, parent=self)
+        if not cantidad:
+            return
+        maps_dir = os.path.join("data", "maps")
+        os.makedirs(maps_dir, exist_ok=True)
+        for _ in range(cantidad):
+            ruta = filedialog.askopenfilename(filetypes=[("PNG", "*.png")])
+            if not ruta:
+                continue
+            nombre = os.path.basename(ruta)
+            destino = os.path.join(maps_dir, nombre)
+            shutil.copy2(ruta, destino)
+            img = Image.open(destino)
+            self.incidencias_db.add_map(nombre, destino, img.width, img.height)
+        self.incidencias_cargar_listado_mapas()
+
+    def incidencias_borrar_mapa(self):
+        if not self._incidencias_pin_ok():
+            return
+        if not self.incidencias_mapas:
+            self._bring_to_front()
+            messagebox.showwarning("Mapas", "No hay mapas cargados.", parent=self)
+            return
+        mapa = self.incidencias_mapas[self.incidencias_map_index]
+        mapa_id, nombre, ruta, *_rest = mapa
+        self._bring_to_front()
+        if not messagebox.askyesno("Borrar mapa", f"Borrar el mapa {nombre} y todo lo asociado?", parent=self):
+            return
+        try:
+            if ruta and os.path.exists(ruta):
+                os.remove(ruta)
+        except Exception:
+            pass
+        self.incidencias_db.delete_map(mapa_id)
+        self.incidencias_cargar_listado_mapas()
+        if not self.incidencias_mapas:
+            self.incidencias_current_map = None
+            self.incidencias_canvas.delete("all")
+            for w in self.incidencias_panel.winfo_children():
+                w.destroy()
+
+    def incidencias_siguiente_mapa(self):
+        if not self.incidencias_mapas:
+            self._bring_to_front()
+            messagebox.showwarning("Mapas", "No hay mapas cargados.", parent=self)
+            return
+        self.incidencias_map_index = (self.incidencias_map_index + 1) % len(self.incidencias_mapas)
+        self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
+
+    def incidencias_mapa_anterior(self):
+        if not self.incidencias_mapas:
+            self._bring_to_front()
+            messagebox.showwarning("Mapas", "No hay mapas cargados.", parent=self)
+            return
+        self.incidencias_map_index = (self.incidencias_map_index - 1) % len(self.incidencias_mapas)
+        self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
+
+    def incidencias_mostrar_mapa(self, mapa_row):
+        mapa_id, nombre, ruta, _, _, _ = mapa_row
+        self.incidencias_canvas.delete("all")
+        self.incidencias_area_items = {}
+        self.incidencias_machine_items = {}
+        img = Image.open(ruta)
+        self.incidencias_img = ImageTk.PhotoImage(img)
+        self.incidencias_canvas.create_image(0, 0, anchor="nw", image=self.incidencias_img)
+        self.incidencias_canvas.config(scrollregion=(0, 0, img.width, img.height))
+        self.incidencias_current_map = mapa_id
+        self.incidencias_color_used = set()
+        for area in self.incidencias_db.list_areas(mapa_id):
+            area_id, nombre, x1, y1, x2, y2, color = area
+            self.incidencias_color_used.add(color)
+            item = self.incidencias_canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=2, tags=("area", str(area_id)))
+            self.incidencias_area_items[area_id] = item
+        for m in self.incidencias_db.list_machines(mapa_id):
+            mid, area_id, nombre, serie, numero, x1, y1, x2, y2, color, _ = m
+            self.incidencias_color_used.add(color)
+            item = self.incidencias_canvas.create_rectangle(x1, y1, x2, y2, outline=color, width=2, tags=("machine", str(mid)))
+            self.incidencias_machine_items[mid] = item
+
+    def incidencias_asignar_area(self):
+        if not self._incidencias_pin_ok():
+            return
+        self._bring_to_front()
+        nombre = simpledialog.askstring("Area", "Como se va a llamar el area?", parent=self)
+        if not nombre:
+            return
+        self.incidencias_mode = ("area", nombre)
+        self._bring_to_front()
+        messagebox.showinfo("Area", "Dibuja el area en el mapa.", parent=self)
+
+    def incidencias_editar_area(self):
+        if not self._incidencias_pin_ok():
+            return
+        self.incidencias_selected_area = None
+        self.incidencias_mode = ("pick_area_edit",)
+        self._bring_to_front()
+        messagebox.showinfo("Area", "Selecciona el area en el mapa.", parent=self)
+
+    def incidencias_listar_maquina(self):
+        if not self._incidencias_pin_ok():
+            return
+        self.incidencias_selected_area = None
+        self.incidencias_mode = ("pick_area_machine",)
+        self._bring_to_front()
+        messagebox.showinfo("Maquina", "Selecciona el area en el mapa.", parent=self)
+
+    def incidencias_editar_maquina(self):
+        if not self._incidencias_pin_ok():
+            return
+        self.incidencias_selected_machine = None
+        self.incidencias_mode = ("pick_machine_edit",)
+        self._bring_to_front()
+        messagebox.showinfo("Maquina", "Selecciona la maquina en el mapa.", parent=self)
+
+    def incidencias_info_maquinas(self, area_id=None):
+        self.incidencias_panel_mode = "machines"
+        # Si se llama desde el boton, limpiamos el filtro
+        if area_id is None:
+            self.incidencias_info_filter_area = None
+        else:
+            self.incidencias_info_filter_area = area_id
+
+        for w in self.incidencias_panel.winfo_children():
+            w.destroy()
+        container = tk.Frame(self.incidencias_panel)
+        container.pack(fill="both", expand=True)
+        tree = ttk.Treeview(container, columns=["area", "nombre", "serie", "numero"], show="headings")
+        for c in ["area", "nombre", "serie", "numero"]:
+            tree.heading(c, text=c.capitalize())
+            tree.column(c, anchor="center")
+        tree.column("area", width=120, stretch=True)
+        tree.column("nombre", width=140, stretch=True)
+        tree.column("serie", width=120, stretch=True)
+        tree.column("numero", width=100, stretch=True)
+        tree.grid(row=0, column=0, sticky="nsew")
+        container.rowconfigure(0, weight=1)
+        container.columnconfigure(0, weight=1)
+        vscroll = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
+        vscroll.grid(row=0, column=1, sticky="ns")
+        tree.configure(yscrollcommand=vscroll.set)
+
+        for m in self.incidencias_db.list_machines(self.incidencias_current_map):
+            mid, area_id_db, nombre, serie, numero, *_rest, area_nombre = m
+            if self.incidencias_info_filter_area and area_id_db != self.incidencias_info_filter_area:
+                continue
+            tree.insert("", "end", values=[area_nombre, nombre, serie, numero], iid=str(mid))
+
+        def on_select(event):
+            sel = tree.selection()
+            if not sel:
+                return
+            mid = int(sel[0])
+            self._incidencias_resaltar_maquina(mid)
+
+        def on_hover(event):
+            row = tree.identify_row(event.y)
+            if not row:
+                self._incidencias_resaltar_maquina(None)
+                return
+            self._incidencias_resaltar_maquina(int(row))
+
+        def on_leave(event):
+            self._incidencias_resaltar_maquina(None)
+
+        def copy_cell(event):
+            row = tree.identify_row(event.y)
+            col = tree.identify_column(event.x)
+            if not row or not col:
+                return
+            col_index = int(col[1:]) - 1
+            values = tree.item(row, "values")
+            if col_index >= len(values):
+                return
+            value = values[col_index]
+            self.clipboard_clear()
+            self.clipboard_append(str(value))
+            self.update()
+
+        def delete_machine(event):
+            row = tree.identify_row(event.y)
+            if not row:
+                return
+            mid = int(row)
+            self._bring_to_front()
+            if not messagebox.askyesno("Eliminar", "Eliminar maquina y todos sus datosN", parent=self):
+                return
+            self.incidencias_db.delete_machine(mid)
+            self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
+            self.incidencias_info_maquinas(self.incidencias_info_filter_area)
+
+        menu = tk.Menu(tree, tearoff=0)
+        menu.add_command(label="Copiar", command=lambda: copy_cell(tree.event_context))
+        menu.add_command(label="Eliminar maquina", command=lambda: delete_machine(tree.event_context))
+        tree.bind("<<TreeviewSelect>>", on_select)
+        tree.bind("<Motion>", on_hover)
+        tree.bind("<Leave>", on_leave)
+        tree.bind("<Button-3>", lambda e: (setattr(tree, 'event_context', e), menu.post(e.x_root, e.y_root)))
+        self.incidencias_machines_tree = tree
+
+    def incidencias_crear_incidencia(self):
+        self._bring_to_front()
+        respuesta = messagebox.askyesno("Incidencia", "Es sobre una maquinaN", parent=self)
+        if respuesta:
+            self.incidencias_mode = ("inc_maquina",)
+            self._bring_to_front()
+            messagebox.showinfo("Incidencia", "Haz click sobre la maquina en el mapa.", parent=self)
+        else:
+            self.incidencias_mode = ("inc_area",)
+            self._bring_to_front()
+            messagebox.showinfo("Incidencia", "Haz click sobre el area en el mapa.", parent=self)
+
+    def incidencias_gestion_incidencias(self):
+        self.incidencias_panel_mode = "incidencias"
+        for w in self.incidencias_panel.winfo_children():
+            w.destroy()
+        if not self.incidencias_current_map:
+            return
+        cols = ["fecha", "estado", "area", "maquina", "serie", "numero", "elemento", "descripcion"]
+        container = tk.Frame(self.incidencias_panel)
+        container.pack(fill="both", expand=True)
+        tree = ttk.Treeview(container, columns=cols, show="headings")
+        for c in cols:
+            tree.heading(c, text=c.capitalize())
+            tree.column(c, anchor="center")
+        tree.column("fecha", width=120, stretch=True)
+        tree.column("estado", width=90, stretch=True)
+        tree.column("area", width=120, stretch=True)
+        tree.column("maquina", width=140, stretch=True)
+        tree.column("serie", width=120, stretch=True)
+        tree.column("numero", width=100, stretch=True)
+        tree.column("elemento", width=120, stretch=True)
+        tree.column("descripcion", width=260, stretch=True)
+        tree.grid(row=0, column=0, sticky="nsew")
+        container.rowconfigure(0, weight=1)
+        container.columnconfigure(0, weight=1)
+        vscroll = ttk.Scrollbar(container, orient="vertical", command=tree.yview)
+        vscroll.grid(row=0, column=1, sticky="ns")
+        tree.configure(yscrollcommand=vscroll.set)
+        self.incidencias_inc_map = {}
+        tree.tag_configure("pendiente", background="#ffe6cc")
+        tree.tag_configure("visto", background="#fff3cd")
+        tree.tag_configure("reparado", background="#d4edda")
+        self.incidencias_area_to_inc = {}
+        for inc in self.incidencias_db.list_incidencias(self.incidencias_current_map):
+            inc_id, fecha, estado, elemento, descripcion, area, maquina, serie, numero = inc
+            tag = ""
+            if estado == "PENDIENTE":
+                tag = "pendiente"
+            elif estado == "VISTO":
+                tag = "visto"
+            elif estado == "REPARADO":
+                tag = "reparado"
+            tree.insert(
+                "",
+                "end",
+                values=[fecha, estado, area or "", maquina or "", serie or "", numero or "", elemento or "", descripcion or ""],
+                iid=str(inc_id),
+                tags=(tag,),
+            )
+            self.incidencias_inc_map[inc_id] = {
+                "area": area,
+                "maquina": maquina,
+                "serie": serie,
+                "numero": numero,
+                "descripcion": descripcion,
+            }
+            if area:
+                self.incidencias_area_to_inc.setdefault(area, []).append(inc_id)
+
+        tooltip = {"win": None, "text": ""}
+
+        def show_tooltip(texto, x, y):
+            if not texto:
+                return
+            if tooltip["win"] is None:
+                tip = tk.Toplevel(self)
+                tip.wm_overrideredirect(True)
+                label = tk.Label(tip, text=texto, justify="left", background="#ffffe0", relief="solid", borderwidth=1, wraplength=380)
+                label.pack(ipadx=4, ipady=2)
+                tooltip["win"] = tip
+            tooltip["win"].wm_geometry(f"+{x}+{y}")
+            tooltip["text"] = texto
+
+        def hide_tooltip():
+            if tooltip["win"] is not None:
+                tooltip["win"].destroy()
+                tooltip["win"] = None
+                tooltip["text"] = ""
+
+        def copy_cell(event):
+            row = tree.identify_row(event.y)
+            col = tree.identify_column(event.x)
+            if not row or not col:
+                return
+            col_index = int(col[1:]) - 1
+            values = tree.item(row, "values")
+            if col_index >= len(values):
+                return
+            value = values[col_index]
+            self.clipboard_clear()
+            self.clipboard_append(str(value))
+            self.update()
+
+        def on_right_click(event):
+            item = tree.identify_row(event.y)
+            if not item:
+                return
+            menu = tk.Menu(tree, tearoff=0)
+            menu.add_command(label="Modificar Incidencia", command=lambda: self._incidencias_editar_incidencia(int(item)))
+            menu.add_command(label="Eliminar Incidencia", command=lambda: self._incidencias_eliminar_incidencia(int(item)))
+            menu.add_command(label="Modificar Estado", command=lambda: self._incidencias_cambiar_estado(int(item)))
+            menu.add_command(label="Copiar", command=lambda: copy_cell(event))
+            menu.post(event.x_root, event.y_root)
+
+        def on_double_click(event):
+            item = tree.identify_row(event.y)
+            if not item:
+                return
+            self._incidencias_cambiar_estado(int(item))
+
+        def on_hover(event):
+            item = tree.identify_row(event.y)
+            if not item:
+                self._incidencias_resaltar_maquina(None)
+                self._incidencias_resaltar_area(None)
+                hide_tooltip()
+                return
+            inc_id = int(item)
+            data = self.incidencias_inc_map.get(inc_id, {})
+            maquina_name = data.get("maquina")
+            if maquina_name:
+                mid = self._incidencias_find_machine_id_by_name(maquina_name)
+                self._incidencias_resaltar_maquina(mid)
+            else:
+                area_name = data.get("area")
+                aid = self._incidencias_find_area_id_by_name(area_name) if area_name else None
+                self._incidencias_resaltar_area(aid)
+
+            col = tree.identify_column(event.x)
+            col_index = int(col[1:]) - 1 if col else -1
+            if col_index == cols.index("descripcion"):
+                values = tree.item(item, "values")
+                desc = values[col_index] if col_index < len(values) else ""
+                if desc:
+                    show_tooltip(str(desc), event.x_root + 12, event.y_root + 12)
+                else:
+                    hide_tooltip()
+            else:
+                hide_tooltip()
+
+        def on_select(event):
+            sel = tree.selection()
+            if not sel:
+                return
+            inc_id = int(sel[0])
+            data = self.incidencias_inc_map.get(inc_id, {})
+            area_name = data.get("area")
+            maquina_name = data.get("maquina")
+            if area_name:
+                aid = self._incidencias_find_area_id_by_name(area_name)
+                if aid:
+                    self._incidencias_blink_area(aid)
+            if maquina_name:
+                mid = self._incidencias_find_machine_id_by_name(maquina_name)
+                if mid:
+                    self._incidencias_blink_machine(mid)
+
+        def on_leave(event):
+            self._incidencias_resaltar_maquina(None)
+            self._incidencias_resaltar_area(None)
+            hide_tooltip()
+
+        tree.bind("<Button-3>", on_right_click)
+        tree.bind("<Double-1>", on_double_click)
+        tree.bind("<Motion>", on_hover)
+        tree.bind("<Leave>", on_leave)
+        tree.bind("<<TreeviewSelect>>", on_select)
+        self.incidencias_incidencias_tree = tree
+
+    def _incidencias_blink_item(self, item_id):
+        if not item_id:
+            return
+        original_width = self.incidencias_canvas.itemcget(item_id, "width")
+        original_outline = self.incidencias_canvas.itemcget(item_id, "outline")
+
+        def toggle(on):
+            if on:
+                self.incidencias_canvas.itemconfig(item_id, width=4, outline="#ff0000")
+            else:
+                self.incidencias_canvas.itemconfig(item_id, width=original_width, outline=original_outline)
+
+        toggle(True)
+        self.after(150, lambda: toggle(False))
+        self.after(300, lambda: toggle(True))
+        self.after(450, lambda: toggle(False))
+
+    def _incidencias_blink_area(self, area_id):
+        item = self.incidencias_area_items.get(area_id)
+        if item:
+            self._incidencias_blink_item(item)
+
+    def _incidencias_blink_machine(self, machine_id):
+        item = self.incidencias_machine_items.get(machine_id)
+        if item:
+            self._incidencias_blink_item(item)
+
+    def _incidencias_resaltar_maquina(self, mid):
+        for item in self.incidencias_machine_items.values():
+            self.incidencias_canvas.itemconfig(item, width=2)
+        if mid and mid in self.incidencias_machine_items:
+            self.incidencias_canvas.itemconfig(self.incidencias_machine_items[mid], width=4)
+
+    def _incidencias_resaltar_area(self, area_id):
+        for item in self.incidencias_area_items.values():
+            self.incidencias_canvas.itemconfig(item, width=2)
+        if area_id and area_id in self.incidencias_area_items:
+            self.incidencias_canvas.itemconfig(self.incidencias_area_items[area_id], width=4)
+
+    def incidencias_canvas_hover(self, event):
+        cx = self.incidencias_canvas.canvasx(event.x)
+        cy = self.incidencias_canvas.canvasy(event.y)
+        item = self.incidencias_canvas.find_closest(cx, cy)
+        if not item:
+            self.incidencias_canvas_leave(event)
+            return
+        item_id = item[0]
+        tags = self.incidencias_canvas.gettags(item_id)
+        if "machine" in tags:
+            mid = int(tags[1])
+            self._incidencias_resaltar_maquina(mid)
+            if self.incidencias_panel_mode == "machines" and hasattr(self, "incidencias_machines_tree"):
+                self.incidencias_machines_tree.selection_set(str(mid))
+                self.incidencias_machines_tree.see(str(mid))
+        elif "area" in tags:
+            aid = int(tags[1])
+            self._incidencias_resaltar_area(aid)
+            if self.incidencias_panel_mode == "incidencias" and hasattr(self, "incidencias_incidencias_tree"):
+                # Selecciona la incidencia mas reciente del area
+                inc_ids = self.incidencias_area_to_inc.get(self._incidencias_area_name_by_id(aid), [])
+                if inc_ids:
+                    inc_id = str(inc_ids[0])
+                    self.incidencias_incidencias_tree.selection_set(inc_id)
+                    self.incidencias_incidencias_tree.see(inc_id)
+
+    def incidencias_canvas_leave(self, event):
+        self._incidencias_resaltar_maquina(None)
+        self._incidencias_resaltar_area(None)
+        if self.incidencias_panel_mode == "machines" and hasattr(self, "incidencias_machines_tree"):
+            self.incidencias_machines_tree.selection_remove(self.incidencias_machines_tree.selection())
+        if self.incidencias_panel_mode == "incidencias" and hasattr(self, "incidencias_incidencias_tree"):
+            self.incidencias_incidencias_tree.selection_remove(self.incidencias_incidencias_tree.selection())
+
+    def _incidencias_area_name_by_id(self, area_id):
+        for a in self.incidencias_db.list_areas(self.incidencias_current_map):
+            aid, anombre, *_rest = a
+            if aid == area_id:
+                return anombre
+        return None
+
+    def _incidencias_find_machine_id_by_name(self, nombre):
+        for mid, item in self.incidencias_machine_items.items():
+            # Busca en DB para evitar depender del canvas
+            pass
+        for m in self.incidencias_db.list_machines(self.incidencias_current_map):
+            mid, _area_id, mnombre, _serie, _numero, *_rest = m
+            if mnombre == nombre:
+                return mid
+        return None
+
+    def _incidencias_find_area_id_by_name(self, nombre):
+        for a in self.incidencias_db.list_areas(self.incidencias_current_map):
+            aid, anombre, *_rest = a
+            if anombre == nombre:
+                return aid
+        return None
+    def _incidencias_editar_incidencia(self, inc_id):
+        self._bring_to_front()
+        elemento = simpledialog.askstring("Incidencia", "Material/elemento:", parent=self)
+        descripcion = simpledialog.askstring("Incidencia", "Describe la incidencia:", parent=self)
+        estado = self._incidencias_selector_estado()
+        if not estado:
+            estado = "PENDIENTE"
+        self.incidencias_db.update_incidencia(inc_id, elemento or "", descripcion or "", estado)
+        self.incidencias_gestion_incidencias()
+
+    def _incidencias_eliminar_incidencia(self, inc_id):
+        self._bring_to_front()
+        if messagebox.askyesno("Eliminar", "Eliminar incidenciaN", parent=self):
+            self.incidencias_db.delete_incidencia(inc_id)
+            self.incidencias_gestion_incidencias()
+
+    def _incidencias_cambiar_estado(self, inc_id):
+        estado = self._incidencias_selector_estado()
+        if not estado:
+            return
+        self.incidencias_db.update_incidencia_estado(inc_id, estado)
+        self.incidencias_gestion_incidencias()
+
+    def _incidencias_selector_estado(self):
+        self._bring_to_front()
+        win = tk.Toplevel(self)
+        win.title("Estado")
+        win.transient(self)
+        win.resizable(False, False)
+        tk.Label(win, text="Selecciona estado:").pack(padx=10, pady=5)
+        opciones = ["PENDIENTE", "VISTO", "REPARADO"]
+        var = tk.StringVar(value=opciones[0])
+        combo = ttk.Combobox(win, values=opciones, textvariable=var, state="readonly")
+        combo.pack(padx=10, pady=5)
+        combo.focus_set()
+        resultado = {"valor": None}
+
+        def aceptar():
+            resultado["valor"] = var.get()
+            win.destroy()
+
+        tk.Button(win, text="Aceptar", command=aceptar).pack(pady=5)
+        win.grab_set()
+        win.wait_window()
+        return resultado["valor"]
+
+    def incidencias_canvas_press(self, event):
+        cx = self.incidencias_canvas.canvasx(event.x)
+        cy = self.incidencias_canvas.canvasy(event.y)
+        if not self.incidencias_mode:
+            # seleccionar area/maquina
+            item = self.incidencias_canvas.find_closest(cx, cy)
+            if not item:
+                return
+            item_id = item[0]
+            tags = self.incidencias_canvas.gettags(item_id)
+            if "area" in tags:
+                self.incidencias_selected_area = int(tags[1])
+                if self.incidencias_panel_mode == "machines":
+                    self.incidencias_info_maquinas(self.incidencias_selected_area)
+            if "machine" in tags:
+                self.incidencias_selected_machine = int(tags[1])
+            return
+
+        mode = self.incidencias_mode[0]
+        if mode in ("pick_area_edit", "pick_area_machine", "pick_machine_edit", "inc_maquina", "inc_area"):
+            item = self.incidencias_canvas.find_closest(cx, cy)
+            if not item:
+                return
+            item_id = item[0]
+            tags = self.incidencias_canvas.gettags(item_id)
+
+            if mode == "pick_area_edit":
+                if "area" not in tags:
+                    self._bring_to_front()
+                    messagebox.showwarning("Area", "Selecciona un area en el mapa.", parent=self)
+                    return
+                self.incidencias_selected_area = int(tags[1])
+                self._bring_to_front()
+                nombre = simpledialog.askstring("Area", "Nuevo nombre del area:", parent=self)
+                if not nombre:
+                    self.incidencias_mode = None
+                    return
+                self.incidencias_mode = ("area_edit", nombre, self.incidencias_selected_area)
+                self._bring_to_front()
+                messagebox.showinfo("Area", "Dibuja el nuevo area en el mapa.", parent=self)
+                return
+
+            if mode == "pick_area_machine":
+                if "area" not in tags:
+                    self._bring_to_front()
+                    messagebox.showwarning("Area", "Selecciona un area en el mapa.", parent=self)
+                    return
+                self.incidencias_selected_area = int(tags[1])
+                self.incidencias_mode = ("machine", self.incidencias_selected_area)
+                self._bring_to_front()
+                messagebox.showinfo("Maquina", "Dibuja la subarea de la maquina en el mapa.", parent=self)
+                return
+
+            if mode == "pick_machine_edit":
+                if "machine" not in tags:
+                    self._bring_to_front()
+                    messagebox.showwarning("Maquina", "Selecciona una maquina en el mapa.", parent=self)
+                    return
+                self.incidencias_selected_machine = int(tags[1])
+                self._bring_to_front()
+                nombre = simpledialog.askstring("Maquina", "Nuevo nombre de la maquina:", parent=self)
+                if not nombre:
+                    self.incidencias_mode = None
+                    return
+                serie = simpledialog.askstring("Maquina", "Numero de serie:", parent=self)
+                numero = simpledialog.askstring("Maquina", "Numero asignado:", parent=self)
+                self.incidencias_mode = ("machine_edit", self.incidencias_selected_machine, nombre, serie, numero)
+                self._bring_to_front()
+                messagebox.showinfo("Maquina", "Dibuja la nueva posicion de la maquina.", parent=self)
+                return
+
+            if mode == "inc_maquina":
+                if "machine" not in tags:
+                    self._bring_to_front()
+                    messagebox.showwarning("Incidencia", "Selecciona una maquina en el mapa.", parent=self)
+                    return
+                mid = int(tags[1])
+                machines = self.incidencias_db.list_machines(self.incidencias_current_map)
+                area_id = None
+                for m in machines:
+                    if m[0] == mid:
+                        area_id = m[1]
+                        break
+                self._bring_to_front()
+                elemento = simpledialog.askstring("Incidencia", "Material/elemento:", parent=self)
+                descripcion = simpledialog.askstring("Incidencia", "Describe la incidencia:", parent=self)
+                if elemento is None and descripcion is None:
+                    self.incidencias_mode = None
+                    return
+                self.incidencias_db.add_incident(self.incidencias_current_map, area_id, mid, elemento or "", descripcion or "")
+                self.incidencias_gestion_incidencias()
+                self.incidencias_mode = None
+                return
+
+            if mode == "inc_area":
+                if "area" not in tags:
+                    self._bring_to_front()
+                    messagebox.showwarning("Incidencia", "Selecciona un area en el mapa.", parent=self)
+                    return
+                area_id = int(tags[1])
+                self._bring_to_front()
+                elemento = simpledialog.askstring("Incidencia", "Material/elemento:", parent=self)
+                descripcion = simpledialog.askstring("Incidencia", "Describe la incidencia:", parent=self)
+                if elemento is None and descripcion is None:
+                    self.incidencias_mode = None
+                    return
+                self.incidencias_db.add_incident(self.incidencias_current_map, area_id, None, elemento or "", descripcion or "")
+                self.incidencias_gestion_incidencias()
+                self.incidencias_mode = None
+                return
+
+        self.incidencias_draw_start = (cx, cy)
+        self.incidencias_draw_rect = self.incidencias_canvas.create_rectangle(
+            cx, cy, cx, cy, outline="red", dash=(2, 2)
+        )
+
+    def incidencias_canvas_drag(self, event):
+        if not self.incidencias_draw_rect:
+            return
+        x1, y1 = self.incidencias_draw_start
+        cx = self.incidencias_canvas.canvasx(event.x)
+        cy = self.incidencias_canvas.canvasy(event.y)
+        self.incidencias_canvas.coords(self.incidencias_draw_rect, x1, y1, cx, cy)
+
+    def incidencias_canvas_release(self, event):
+        if not self.incidencias_mode:
+            return
+        if not self.incidencias_draw_rect:
+            return
+        x1, y1, x2, y2 = self.incidencias_canvas.coords(self.incidencias_draw_rect)
+        self.incidencias_canvas.delete(self.incidencias_draw_rect)
+        self.incidencias_draw_rect = None
+        self._bring_to_front()
+        if not messagebox.askyesno("Confirmar", "Estas seguro?", parent=self):
+            self.incidencias_mode = None
+            return
+        if self.incidencias_mode[0] == "area":
+            nombre = self.incidencias_mode[1]
+            color = self._incidencias_color()
+            self.incidencias_db.add_area(self.incidencias_current_map, nombre, int(x1), int(y1), int(x2), int(y2), color)
+            self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
+        elif self.incidencias_mode[0] == "area_edit":
+            nombre, area_id = self.incidencias_mode[1], self.incidencias_mode[2]
+            self.incidencias_db.update_area(area_id, nombre, int(x1), int(y1), int(x2), int(y2))
+            self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
+        elif self.incidencias_mode[0] == "machine":
+            area_id = self.incidencias_mode[1]
+            self._bring_to_front()
+            nombre = simpledialog.askstring("Maquina", "Nombre de la maquina:", parent=self)
+            serie = simpledialog.askstring("Maquina", "Numero de serie:", parent=self)
+            numero = simpledialog.askstring("Maquina", "Numero asignado:", parent=self)
+            color = self._incidencias_color()
+            self.incidencias_db.add_machine(area_id, nombre or "", serie or "", numero or "", int(x1), int(y1), int(x2), int(y2), color)
+            self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
+        elif self.incidencias_mode[0] == "machine_edit":
+            mid, nombre, serie, numero = self.incidencias_mode[1], self.incidencias_mode[2], self.incidencias_mode[3], self.incidencias_mode[4]
+            self.incidencias_db.update_machine(mid, nombre or "", serie or "", numero or "", int(x1), int(y1), int(x2), int(y2))
+            self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
+        self.incidencias_mode = None
+
     def exportar_excel(self):
         try:
             pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
             if pin is None:
                 return
             if pin.strip() != get_security_code():
-                messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
+                messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
                 return
 
             pestana_activa = self.notebook.select()
@@ -1278,7 +2087,7 @@ class ResamaniaApp(tk.Tk):
             tree = self.tabs[nombre_pestana].tree
 
             if not tree.get_children():
-                messagebox.showwarning("Sin datos", f"No hay datos para exportar en la pestana {nombre_pestana}.")
+                messagebox.showwarning("Sin datos", f"No hay datos para exportar en la pestana {nombre_pestana}.", parent=self)
                 return
 
             columnas = tree["columns"]
@@ -1446,7 +2255,7 @@ class ResamaniaApp(tk.Tk):
         if pin is None:
             return  # cancelado
         if pin.strip() != get_security_code():
-            messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
+            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
             return
 
         def normalize(text):
@@ -1536,7 +2345,7 @@ class ResamaniaApp(tk.Tk):
                 )
 
             mail.Display()  # abre borrador para revisión
-            if not messagebox.askyesno("Confirmación", "¿Ha enviado la felicitación?"):
+            if not messagebox.askyesno("Confirmación", "Ha enviado la felicitacion?"):
                 return
             # Marca como enviados para este año
             enviados.update([e.lower() for e in emails_pendientes])
@@ -1571,7 +2380,7 @@ class ResamaniaApp(tk.Tk):
         if pin is None:
             return
         if pin.strip() != get_security_code():
-            messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
+            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
             return
 
         numero = simpledialog.askstring("Número de cliente", "Introduce el número de cliente:")
@@ -1628,7 +2437,7 @@ class ResamaniaApp(tk.Tk):
         if pin is None:
             return
         if pin.strip() != get_security_code():
-            messagebox.showerror("Código incorrecto", "El código de seguridad no es válido.")
+            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
             return
 
         # Generar archivo temporal con los datos

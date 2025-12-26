@@ -690,6 +690,10 @@
   ('logic.impagos',
    'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\logic\\impagos.py',
    'PYMODULE'),
+  ('logic.incidencias',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\logic\\incidencias.py',
+   'PYMODULE'),
   ('logic.ultimate',
    'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
    'V1\\logic\\ultimate.py',
