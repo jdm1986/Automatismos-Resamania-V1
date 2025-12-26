@@ -109,10 +109,20 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_hover_blink_after = None
         self.incidencias_hover_blink_original = None
 
+        # Salidas PMR autorizados/advertidos
+        self.pmr_autorizados_file = os.path.join("data", "pmr_autorizados.json")
+        self.pmr_autorizados = set()
+        self.pmr_advertencias_file = os.path.join("data", "pmr_advertencias.json")
+        self.pmr_advertencias = {}
+        self.pmr_df_raw = None
+        self.accesos_grupo_actual = None
+
         self.create_widgets()
         self.cargar_clientes_ext()
         self.cargar_prestamos_json()
         self.cargar_felicitaciones()
+        self.cargar_pmr_autorizados()
+        self.cargar_pmr_advertencias()
         if self.folder_path:
             self.load_data()
 
@@ -307,6 +317,11 @@ class ResamaniaApp(tk.Tk):
 
     def mostrar_menu(self, event, menu, tree):
         tree.event_context = event
+        menu.delete(0, "end")
+        menu.add_command(label="Copiar", command=lambda: self.copiar_celda(tree.event_context, tree))
+        accesos_tab = self.tabs.get("Accesos")
+        if accesos_tab and tree is accesos_tab.tree and self.accesos_grupo_actual == "Salidas PMR Autorizados":
+            menu.add_command(label="Quitar autorizacion", command=self.pmr_quitar_autorizado)
         menu.post(event.x_root, event.y_root)
 
     def create_accesos_tab(self, tab):
@@ -314,13 +329,57 @@ class ResamaniaApp(tk.Tk):
         header.pack(fill="x", pady=4)
 
         botones = [
-            ("Accesos Dobles", "Accesos Dobles"),
-            ("Accesos Descuadrados", "Accesos Descuadrados"),
-            ("Salidas PMR No Autorizadas", "Salidas PMR No Autorizadas"),
-            ("Morosos Accediendo", "Morosos Accediendo"),
+            ("Accesos Dobles", "Accesos Dobles", "#d7bde2", "black"),
+            ("Accesos Descuadrados", "Accesos Descuadrados", "#b39ddb", "black"),
+            ("Salidas PMR No Autorizadas", "Salidas PMR No Autorizadas", "#f8b6c1", "black"),
+            ("Morosos Accediendo", "Morosos Accediendo", "#ef9a9a", "black"),
         ]
-        for label, fuente in botones:
-            tk.Button(header, text=label, command=lambda f=fuente: self._mostrar_grupo("Accesos", f)).pack(side="left", padx=5)
+        for label, fuente, bg, fg in botones:
+            tk.Button(
+                header,
+                text=label,
+                command=lambda f=fuente: self._mostrar_grupo("Accesos", f),
+                bg=bg,
+                fg=fg,
+            ).pack(side="left", padx=5)
+
+        self.pmr_tools_frame = tk.Frame(tab)
+        self.pmr_tools_visible = False
+        tk.Button(
+            self.pmr_tools_frame,
+            text="Agregar autorizado",
+            command=self.pmr_agregar_autorizado,
+            bg="#b0bec5",
+            fg="black",
+        ).pack(side="left", padx=5)
+        tk.Button(
+            self.pmr_tools_frame,
+            text="Advertir WhatsApp",
+            command=self.pmr_advertir_whatsapp,
+            bg="#81c784",
+            fg="black",
+        ).pack(side="left", padx=5)
+        tk.Button(
+            self.pmr_tools_frame,
+            text="Enviar aviso email",
+            command=self.pmr_enviar_email,
+            bg="#e57373",
+            fg="black",
+        ).pack(side="left", padx=5)
+        tk.Button(
+            self.pmr_tools_frame,
+            text="Ver advertidos",
+            command=self.pmr_mostrar_advertidos,
+            bg="#64b5f6",
+            fg="black",
+        ).pack(side="left", padx=5)
+        tk.Button(
+            self.pmr_tools_frame,
+            text="Ver autorizados",
+            command=self.pmr_mostrar_autorizados,
+            bg="#ffe082",
+            fg="black",
+        ).pack(side="left", padx=5)
 
         content = tk.Frame(tab)
         content.pack(expand=True, fill="both")
@@ -331,11 +390,17 @@ class ResamaniaApp(tk.Tk):
         header.pack(fill="x", pady=4)
 
         botones = [
-            ("Socios Ultimate", "Socios Ultimate"),
-            ("Socios Yanga", "Socios Yanga"),
+            ("Socios Ultimate", "Socios Ultimate", "#80cbc4", "black"),
+            ("Socios Yanga", "Socios Yanga", "#a5d6a7", "black"),
         ]
-        for label, fuente in botones:
-            tk.Button(header, text=label, command=lambda f=fuente: self._mostrar_grupo("Servicios", f)).pack(side="left", padx=5)
+        for label, fuente, bg, fg in botones:
+            tk.Button(
+                header,
+                text=label,
+                command=lambda f=fuente: self._mostrar_grupo("Servicios", f),
+                bg=bg,
+                fg=fg,
+            ).pack(side="left", padx=5)
 
         content = tk.Frame(tab)
         content.pack(expand=True, fill="both")
@@ -346,7 +411,332 @@ class ResamaniaApp(tk.Tk):
         if df is None:
             messagebox.showwarning("Sin datos", f"No hay datos cargados para {fuente}.")
             return
+        if tab_name == "Accesos":
+            self.accesos_grupo_actual = fuente
+            if fuente == "Salidas PMR No Autorizadas":
+                if not self.pmr_tools_visible:
+                    self.pmr_tools_frame.pack(fill="x", pady=2)
+                    self.pmr_tools_visible = True
+            else:
+                if self.pmr_tools_visible:
+                    self.pmr_tools_frame.pack_forget()
+                    self.pmr_tools_visible = False
         self.mostrar_en_tabla(tab_name, df)
+
+    def cargar_pmr_autorizados(self):
+        if os.path.exists(self.pmr_autorizados_file):
+            try:
+                with open(self.pmr_autorizados_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    self.pmr_autorizados = {str(x).strip() for x in data if str(x).strip()}
+            except Exception:
+                self.pmr_autorizados = set()
+
+    def guardar_pmr_autorizados(self):
+        os.makedirs(os.path.dirname(self.pmr_autorizados_file), exist_ok=True)
+        with open(self.pmr_autorizados_file, "w", encoding="utf-8") as f:
+            json.dump(sorted(self.pmr_autorizados), f, ensure_ascii=False, indent=2)
+
+    def cargar_pmr_advertencias(self):
+        if os.path.exists(self.pmr_advertencias_file):
+            try:
+                with open(self.pmr_advertencias_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    advertencias = {}
+                    for item in data:
+                        codigo = str(item.get("codigo", "")).strip()
+                        if codigo:
+                            advertencias[codigo] = item
+                    self.pmr_advertencias = advertencias
+            except Exception:
+                self.pmr_advertencias = {}
+
+    def guardar_pmr_advertencias(self):
+        os.makedirs(os.path.dirname(self.pmr_advertencias_file), exist_ok=True)
+        data = list(self.pmr_advertencias.values())
+        with open(self.pmr_advertencias_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def _pmr_norm(self, text):
+        t = unicodedata.normalize("NFD", str(text or "")).upper().strip()
+        return "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
+
+    def _pmr_get_col_index(self, columns, desired):
+        desired_norm = self._pmr_norm(desired)
+        for idx, col in enumerate(columns):
+            if self._pmr_norm(col) == desired_norm:
+                return idx
+        return None
+
+    def _pmr_filtrar_pendientes(self, df):
+        if df is None or df.empty:
+            return df
+        colmap = {self._pmr_norm(c): c for c in df.columns}
+        col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NRO DE CLIENTE")
+        if not col_codigo:
+            return df
+        codigos_aut = {str(x).strip() for x in self.pmr_autorizados}
+        codigos_adv = {str(x).strip() for x in self.pmr_advertencias.keys()}
+        codigos = codigos_aut | codigos_adv
+        series = df[col_codigo].astype(str).str.strip()
+        return df[~series.isin(codigos)].copy()
+
+    def _pmr_refrescar_listado(self):
+        if self.pmr_df_raw is None:
+            return
+        pmr_filtrado = self._pmr_filtrar_pendientes(self.pmr_df_raw)
+        self.dataframes["Salidas PMR No Autorizadas"] = pmr_filtrado
+        if self.accesos_grupo_actual == "Salidas PMR No Autorizadas":
+            self.mostrar_en_tabla("Accesos", pmr_filtrado)
+
+    def pmr_agregar_autorizado(self):
+        if self.accesos_grupo_actual != "Salidas PMR No Autorizadas":
+            messagebox.showwarning("PMR", "Selecciona primero 'Salidas PMR No Autorizadas'.")
+            return
+        tree = self.tabs["Accesos"].tree
+        sel = tree.selection()
+        codigo = None
+        if sel:
+            columns = list(tree["columns"])
+            idx_codigo = self._pmr_get_col_index(columns, "Numero de cliente")
+            if idx_codigo is not None:
+                codigo = str(tree.item(sel[0])["values"][idx_codigo]).strip()
+        if not codigo:
+            codigo = simpledialog.askstring("PMR", "Numero de cliente autorizado:", parent=self)
+            if codigo is None:
+                return
+            codigo = codigo.strip()
+        if not codigo:
+            messagebox.showwarning("PMR", "No se ingreso numero de cliente.")
+            return
+        self.pmr_autorizados.add(codigo)
+        self.guardar_pmr_autorizados()
+        self._pmr_refrescar_listado()
+        messagebox.showinfo("PMR", f"Cliente {codigo} marcado como autorizado.")
+
+    def pmr_advertir_whatsapp(self):
+        if self.accesos_grupo_actual != "Salidas PMR No Autorizadas":
+            messagebox.showwarning("PMR", "Selecciona primero 'Salidas PMR No Autorizadas'.")
+            return
+        tree = self.tabs["Accesos"].tree
+        sel = tree.selection()
+        if not sel:
+            messagebox.showwarning("PMR", "Selecciona un cliente.")
+            return
+        columns = list(tree["columns"])
+        idx_movil = self._pmr_get_col_index(columns, "Movil")
+        idx_codigo = self._pmr_get_col_index(columns, "Numero de cliente")
+        values = tree.item(sel[0])["values"]
+        movil = ""
+        codigo = ""
+        if idx_movil is not None and idx_movil < len(values):
+            movil = values[idx_movil]
+        if idx_codigo is not None and idx_codigo < len(values):
+            codigo = str(values[idx_codigo]).strip()
+        movil = self._normalizar_movil(movil)
+        if not movil:
+            messagebox.showwarning("PMR", "El cliente no tiene movil.")
+            return
+        mensaje = (
+            "\U0001F4E9 INFORMACION IMPORTANTE - FITNESS PARK VILLALOBOS\n\n"
+            "Hola \U0001F44B\n\n"
+            "LE INFORMAMOS QUE EL ACCESO Y LA SALIDA AL CLUB SE REALIZA POR LOS TORNOS\n\n"
+            "\u26A0 EL USO DE LA PUERTA PARA PERSONAS CON MOVILIDAD REDUCIDA NO SE PERMITE A OTRAS PERSONAS "
+            "QUE NO TENGAN ESTA CONDICION DE DIVERSIDAD FUNCIONAL \u26A0\n\n"
+            "Asi ayudamos a mantener un entorno seguro y respetuoso para tod@s.\n\n"
+            "Reglamento: https://www.fitnesspark.es/reglamento-interno.pdf\n\n"
+            "Gracias por tu colaboracion.\n"
+            "Fitness Park Villalobos - Juntos, mas fuertes."
+        )
+        url = f"https://wa.me/{movil}?text={urllib.parse.quote(mensaje)}"
+        webbrowser.open(url)
+        if codigo:
+            ahora = datetime.now().strftime("%Y-%m-%d %H:%M")
+            self.pmr_advertencias[codigo] = {
+                "codigo": codigo,
+                "fecha": ahora,
+                "canal": "whatsapp",
+            }
+            self.guardar_pmr_advertencias()
+            self._pmr_refrescar_listado()
+
+    def pmr_enviar_email(self):
+        if self.accesos_grupo_actual != "Salidas PMR No Autorizadas":
+            messagebox.showwarning("PMR", "Selecciona primero 'Salidas PMR No Autorizadas'.")
+            return
+        tree = self.tabs["Accesos"].tree
+        rows = [tree.item(i)["values"] for i in tree.get_children()]
+        columns = list(tree["columns"])
+        idx_email = self._pmr_get_col_index(columns, "Correo electronico")
+        idx_codigo = self._pmr_get_col_index(columns, "Numero de cliente")
+        idx_nombre = self._pmr_get_col_index(columns, "Nombre")
+        idx_apellidos = self._pmr_get_col_index(columns, "Apellidos")
+        idx_movil = self._pmr_get_col_index(columns, "Movil")
+
+        emails = []
+        for r in rows:
+            if idx_email is not None and idx_email < len(r):
+                email = str(r[idx_email]).strip()
+                if email:
+                    emails.append(email)
+
+        cuerpo = (
+            "\U0001F4E9 INFORMACION IMPORTANTE - FITNESS PARK VILLALOBOS\n\n"
+            "Hola \U0001F44B\n\n"
+            "LE INFORMAMOS QUE EL ACCESO Y LA SALIDA AL CLUB SE REALIZA POR LOS TORNOS\n\n"
+            "\u26A0 EL USO DE LA PUERTA PARA PERSONAS CON MOVILIDAD REDUCIDA NO SE PERMITE A OTRAS PERSONAS "
+            "QUE NO TENGAN ESTA CONDICION DE DIVERSIDAD FUNCIONAL \u26A0\n\n"
+            "Asi ayudamos a mantener un entorno seguro y respetuoso para tod@s.\n\n"
+            "Reglamento completo: https://www.fitnesspark.es/reglamento-interno.pdf\n\n"
+            "Gracias por tu colaboracion.\n"
+            "Fitness Park Villalobos - Juntos, mas fuertes."
+        )
+        asunto = "Informacion importante - Fitness Park Villalobos"
+
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            messagebox.showwarning("Outlook no disponible", "No se pudo importar win32com.client.")
+            return
+
+        def try_outlook():
+            outlook_app = win32com.client.Dispatch("Outlook.Application")
+            try:
+                ns = outlook_app.GetNamespace("MAPI")
+                ns.Logon("", "", False, False)
+            except Exception:
+                pass
+            return outlook_app
+
+        try:
+            try:
+                outlook = try_outlook()
+            except Exception:
+                os.startfile("outlook.exe")
+                time.sleep(3)
+                outlook = try_outlook()
+
+            mail = outlook.CreateItem(0)
+            if emails:
+                mail.BCC = ";".join(sorted(set(emails)))
+            mail.Subject = asunto
+            mail.Body = cuerpo
+            mail.Display()
+        except Exception as e:
+            messagebox.showerror("Outlook", f"No se pudo crear el correo: {e}", parent=self)
+            return
+
+        if not messagebox.askyesno("Confirmacion", "Ha enviado el email de advertencia?", parent=self):
+            return
+
+        ahora = datetime.now().strftime("%Y-%m-%d %H:%M")
+        for r in rows:
+            if idx_codigo is None or idx_codigo >= len(r):
+                continue
+            codigo = str(r[idx_codigo]).strip()
+            if not codigo:
+                continue
+            self.pmr_advertencias[codigo] = {
+                "codigo": codigo,
+                "fecha": ahora,
+                "canal": "email",
+                "nombre": r[idx_nombre] if idx_nombre is not None and idx_nombre < len(r) else "",
+                "apellidos": r[idx_apellidos] if idx_apellidos is not None and idx_apellidos < len(r) else "",
+                "email": r[idx_email] if idx_email is not None and idx_email < len(r) else "",
+                "movil": r[idx_movil] if idx_movil is not None and idx_movil < len(r) else "",
+            }
+        self.guardar_pmr_advertencias()
+        self._pmr_refrescar_listado()
+
+    def pmr_mostrar_advertidos(self):
+        if not self.pmr_advertencias:
+            messagebox.showinfo("PMR", "No hay clientes advertidos.")
+            return
+        data = []
+        for item in self.pmr_advertencias.values():
+            data.append(
+                {
+                    "Numero de cliente": item.get("codigo", ""),
+                    "Nombre": item.get("nombre", ""),
+                    "Apellidos": item.get("apellidos", ""),
+                    "Correo electronico": item.get("email", ""),
+                    "Movil": item.get("movil", ""),
+                    "Fecha aviso": item.get("fecha", ""),
+                    "Canal": item.get("canal", ""),
+                }
+            )
+        df = pd.DataFrame(data)
+        self.accesos_grupo_actual = "Salidas PMR Advertidos"
+        if self.pmr_tools_visible:
+            self.pmr_tools_frame.pack(fill="x", pady=2)
+        self.mostrar_en_tabla("Accesos", df)
+
+    def pmr_mostrar_autorizados(self):
+        if not self.pmr_autorizados:
+            messagebox.showinfo("PMR", "No hay clientes autorizados.")
+            return
+        data = []
+        for codigo in sorted(self.pmr_autorizados):
+            row = {
+                "Numero de cliente": codigo,
+                "Nombre": "",
+                "Apellidos": "",
+                "Correo electronico": "",
+                "Movil": "",
+            }
+            if self.pmr_df_raw is not None and not self.pmr_df_raw.empty:
+                colmap = {self._pmr_norm(c): c for c in self.pmr_df_raw.columns}
+                col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NRO DE CLIENTE")
+                if col_codigo:
+                    match = self.pmr_df_raw[self.pmr_df_raw[col_codigo].astype(str).str.strip() == codigo]
+                    if not match.empty:
+                        rec = match.iloc[0]
+                        row["Nombre"] = rec.get(colmap.get("NOMBRE", ""), "")
+                        row["Apellidos"] = rec.get(colmap.get("APELLIDOS", ""), "")
+                        row["Correo electronico"] = rec.get(colmap.get("CORREO ELECTRONICO", ""), "")
+                        row["Movil"] = rec.get(colmap.get("MOVIL", ""), "")
+            if self.resumen_df is not None and self.resumen_df is not None:
+                colmap2 = {self._pmr_norm(c): c for c in self.resumen_df.columns}
+                col_codigo2 = colmap2.get("NUMERO DE CLIENTE") or colmap2.get("NRO DE CLIENTE")
+                if col_codigo2 and not row["Nombre"]:
+                    match2 = self.resumen_df[self.resumen_df[col_codigo2].astype(str).str.strip() == codigo]
+                    if not match2.empty:
+                        rec2 = match2.iloc[0]
+                        row["Nombre"] = rec2.get(colmap2.get("NOMBRE", ""), row["Nombre"])
+                        row["Apellidos"] = rec2.get(colmap2.get("APELLIDOS", ""), row["Apellidos"])
+                        row["Correo electronico"] = rec2.get(colmap2.get("CORREO ELECTRONICO", ""), row["Correo electronico"])
+                        row["Movil"] = rec2.get(colmap2.get("MOVIL", ""), row["Movil"])
+            data.append(row)
+        df = pd.DataFrame(data)
+        self.accesos_grupo_actual = "Salidas PMR Autorizados"
+        if not self.pmr_tools_visible:
+            self.pmr_tools_frame.pack(fill="x", pady=2)
+            self.pmr_tools_visible = True
+        self.mostrar_en_tabla("Accesos", df)
+
+    def pmr_quitar_autorizado(self):
+        if self.accesos_grupo_actual != "Salidas PMR Autorizados":
+            return
+        tree = self.tabs["Accesos"].tree
+        sel = tree.selection()
+        if not sel:
+            messagebox.showwarning("PMR", "Selecciona un cliente autorizado.")
+            return
+        columns = list(tree["columns"])
+        idx_codigo = self._pmr_get_col_index(columns, "Numero de cliente")
+        if idx_codigo is None:
+            messagebox.showwarning("PMR", "No se encontro la columna de numero de cliente.")
+            return
+        codigo = str(tree.item(sel[0])["values"][idx_codigo]).strip()
+        if not codigo:
+            return
+        if codigo in self.pmr_autorizados:
+            self.pmr_autorizados.remove(codigo)
+            self.guardar_pmr_autorizados()
+            self.pmr_mostrar_autorizados()
+            self._pmr_refrescar_listado()
 
     def select_folder(self):
         folder = filedialog.askdirectory()
@@ -371,7 +761,10 @@ class ResamaniaApp(tk.Tk):
             self.mostrar_en_tabla("Wizville", procesar_wizville(resumen, accesos))
             self.mostrar_en_tabla("Accesos Dobles", procesar_accesos_dobles(resumen, accesos))
             self.mostrar_en_tabla("Accesos Descuadrados", procesar_accesos_descuadrados(resumen, accesos))
-            self.mostrar_en_tabla("Salidas PMR No Autorizadas", procesar_salidas_pmr_no_autorizadas(resumen, accesos))
+            pmr_df = procesar_salidas_pmr_no_autorizadas(resumen, accesos)
+            self.pmr_df_raw = pmr_df.copy()
+            pmr_filtrado = self._pmr_filtrar_pendientes(pmr_df)
+            self.mostrar_en_tabla("Salidas PMR No Autorizadas", pmr_filtrado)
             self.mostrar_en_tabla("Morosos Accediendo", procesar_morosos_accediendo(incidencias, accesos), color="#F4CCCC")
             self.mostrar_en_tabla("Socios Ultimate", obtener_socios_ultimate())
             self.mostrar_en_tabla("Socios Yanga", obtener_socios_yanga())
