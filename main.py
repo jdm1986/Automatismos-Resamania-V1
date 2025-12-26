@@ -203,10 +203,12 @@ class ResamaniaApp(tk.Tk):
 
         tab_colors = {
             "Wizville": "#6fa8dc",
+            "Accesos": "#a4c2f4",
             "Accesos Dobles": "#b4a7d6",
             "Accesos Descuadrados": "#8e7cc3",
             "Salidas PMR No Autorizadas": "#c27ba0",
             "Morosos Accediendo": "#e06666",
+            "Servicios": "#b6d7a8",
             "Socios Ultimate": "#76a5af",
             "Socios Yanga": "#93c47d",
             "Avanza Fit": "#ffd966",
@@ -219,9 +221,19 @@ class ResamaniaApp(tk.Tk):
         self.tab_icons = {}
 
         self.tabs = {}
+        ocultar_tabs = {
+            "Accesos Dobles",
+            "Accesos Descuadrados",
+            "Salidas PMR No Autorizadas",
+            "Morosos Accediendo",
+            "Socios Ultimate",
+            "Socios Yanga",
+        }
         for tab_name in [
-            "Wizville", "Accesos Dobles", "Accesos Descuadrados",
-            "Salidas PMR No Autorizadas", "Morosos Accediendo", "Socios Ultimate", "Socios Yanga",
+            "Wizville", "Accesos", "Servicios",
+            "Accesos Dobles", "Accesos Descuadrados",
+            "Salidas PMR No Autorizadas", "Morosos Accediendo",
+            "Socios Ultimate", "Socios Yanga",
             "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club"
         ]:
             tab = ttk.Frame(self.notebook)
@@ -231,7 +243,11 @@ class ResamaniaApp(tk.Tk):
             self.tab_icons[tab_name] = icon
             self.notebook.add(tab, text=tab_name, image=icon, compound="left")
             self.tabs[tab_name] = tab
-            if tab_name == "Prestamos":
+            if tab_name == "Accesos":
+                self.create_accesos_tab(tab)
+            elif tab_name == "Servicios":
+                self.create_servicios_tab(tab)
+            elif tab_name == "Prestamos":
                 self.create_prestamos_tab(tab)
             elif tab_name == "Impagos":
                 self.create_impagos_tab(tab)
@@ -239,11 +255,14 @@ class ResamaniaApp(tk.Tk):
                 self.create_incidencias_tab(tab)
             else:
                 self.create_table(tab)
+            if tab_name in ocultar_tabs:
+                self.notebook.hide(tab)
             if tab_name == "Impagos":
                 self.notebook.hide(tab)
 
-    def create_table(self, tab):
-        container = tk.Frame(tab)
+    def create_table(self, tab, parent=None):
+        container_parent = parent or tab
+        container = tk.Frame(container_parent)
         container.pack(expand=True, fill='both')
         container.rowconfigure(0, weight=1)
         container.columnconfigure(0, weight=1)
@@ -290,6 +309,45 @@ class ResamaniaApp(tk.Tk):
         tree.event_context = event
         menu.post(event.x_root, event.y_root)
 
+    def create_accesos_tab(self, tab):
+        header = tk.Frame(tab)
+        header.pack(fill="x", pady=4)
+
+        botones = [
+            ("Accesos Dobles", "Accesos Dobles"),
+            ("Accesos Descuadrados", "Accesos Descuadrados"),
+            ("Salidas PMR No Autorizadas", "Salidas PMR No Autorizadas"),
+            ("Morosos Accediendo", "Morosos Accediendo"),
+        ]
+        for label, fuente in botones:
+            tk.Button(header, text=label, command=lambda f=fuente: self._mostrar_grupo("Accesos", f)).pack(side="left", padx=5)
+
+        content = tk.Frame(tab)
+        content.pack(expand=True, fill="both")
+        self.create_table(tab, parent=content)
+
+    def create_servicios_tab(self, tab):
+        header = tk.Frame(tab)
+        header.pack(fill="x", pady=4)
+
+        botones = [
+            ("Socios Ultimate", "Socios Ultimate"),
+            ("Socios Yanga", "Socios Yanga"),
+        ]
+        for label, fuente in botones:
+            tk.Button(header, text=label, command=lambda f=fuente: self._mostrar_grupo("Servicios", f)).pack(side="left", padx=5)
+
+        content = tk.Frame(tab)
+        content.pack(expand=True, fill="both")
+        self.create_table(tab, parent=content)
+
+    def _mostrar_grupo(self, tab_name, fuente):
+        df = self.dataframes.get(fuente)
+        if df is None:
+            messagebox.showwarning("Sin datos", f"No hay datos cargados para {fuente}.")
+            return
+        self.mostrar_en_tabla(tab_name, df)
+
     def select_folder(self):
         folder = filedialog.askdirectory()
         if folder:
@@ -320,6 +378,8 @@ class ResamaniaApp(tk.Tk):
             self.mostrar_en_tabla("Avanza Fit", obtener_avanza_fit())
             self.mostrar_en_tabla("Cumpleaños", obtener_cumpleanos_hoy())
 
+            self._mostrar_grupo("Accesos", "Accesos Dobles")
+            self._mostrar_grupo("Servicios", "Socios Ultimate")
             messagebox.showinfo("Exito", "Datos cargados correctamente.")
         except Exception as e:
             messagebox.showerror("Error al cargar datos", str(e))
@@ -1315,7 +1375,7 @@ class ResamaniaApp(tk.Tk):
         )
 
     def ir_a_impagos(self):
-        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
+        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*", parent=self)
         if pin is None:
             return
         if pin.strip() != get_security_code():
@@ -2682,21 +2742,21 @@ class ResamaniaApp(tk.Tk):
             messagebox.showwarning("Sin datos", "Primero carga datos (Actualizar datos) para tener ACCESOS.")
             return
 
-        # Trae la ventana al frente para que los dialogs tomen foco
-        try:
-            self.lift()
-            self.focus_force()
-        except Exception:
-            pass
-
-        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
+        self._bring_to_front()
+        pin = simpledialog.askstring(
+            "Codigo de seguridad",
+            "Introduce el codigo de seguridad:",
+            show="*",
+            parent=self,
+        )
         if pin is None:
             return
         if pin.strip() != get_security_code():
             messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
             return
 
-        numero = simpledialog.askstring("Número de cliente", "Introduce el número de cliente:")
+        self._bring_to_front()
+        numero = simpledialog.askstring("Número de cliente", "Introduce el número de cliente:", parent=self)
         if numero is None:
             return
         numero = numero.strip()
