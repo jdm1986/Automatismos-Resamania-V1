@@ -119,25 +119,33 @@ class ResamaniaApp(tk.Tk):
     def create_widgets(self):
         top_frame = tk.Frame(self)
         top_frame.pack(pady=10, fill="x")
+        top_frame.columnconfigure(0, weight=1, uniform="top")
+        top_frame.columnconfigure(1, weight=1, uniform="top")
+        top_frame.columnconfigure(2, weight=1, uniform="top")
 
-        # Logo universal (compatible con .exe y .py)
+        left_frame = tk.Frame(top_frame)
+        left_frame.grid(row=0, column=0, sticky="nsew", padx=10)
+        center_frame = tk.Frame(top_frame)
+        center_frame.grid(row=0, column=1, sticky="nsew", padx=10)
+        right_frame = tk.Frame(top_frame)
+        right_frame.grid(row=0, column=2, sticky="nsew", padx=10)
+
+        # Logo Fitness Park
         logo_fp_path = get_logo_path("LogoFpark.png")
         if os.path.exists(logo_fp_path):
             img_fp = Image.open(logo_fp_path)
             img_fp = img_fp.resize((550, 140))
             self.logo_fp_img = ImageTk.PhotoImage(img_fp)
-            tk.Label(top_frame, image=self.logo_fp_img).pack(side=tk.LEFT, padx=10)
+            tk.Label(left_frame, image=self.logo_fp_img).pack(expand=True)
 
-        instrucciones_frame = tk.Frame(top_frame)
-        instrucciones_frame.pack(side=tk.LEFT, padx=10, expand=True, fill="x")
-
+        # Instrucciones centradas
         tk.Label(
-            instrucciones_frame,
+            center_frame,
             text="INSTRUCCIONES PARA USO CORRECTO:",
-            justify="left",
-            anchor="w",
+            justify="center",
+            anchor="center",
             font=("Arial", 10, "bold"),
-        ).pack(anchor="w")
+        ).pack(anchor="center")
 
         instrucciones = (
             "- La carpeta seleccionada debe contener los siguientes archivos (exportados de Resamania y deben sobreescribir los existentes):\n\n"
@@ -145,25 +153,33 @@ class ResamaniaApp(tk.Tk):
             "   - ACCESOS.csv (intervalo de 4 semanas atrás)\n"
             "   - FACTURAS Y VALES.csv (intervalo de 4 semanas atrás)\n"
             "   - IMPAGOS.csv (Exportar el día actual el archivo - Clientes con Incidente de Pago)\n\n"
-            "- Todos los archivos deben ser del mismo dia de exportacion.\n"
-            "- Pulsa el boton 'Seleccionar carpeta' para comenzar la revision.\n"
+            "- Todos los archivos deben ser del mismo día de exportación.\n"
+            "- Pulsa el botón 'Seleccionar carpeta' para comenzar la revisión.\n"
         )
-        tk.Label(instrucciones_frame, text=instrucciones, justify="left", anchor="w").pack(anchor="w")
+        tk.Label(
+            center_frame,
+            text=instrucciones,
+            justify="left",
+            anchor="w",
+            wraplength=560,
+        ).pack(anchor="w")
 
         tk.Label(
-            instrucciones_frame,
+            center_frame,
             text="NOTA: Una vez seleccionada una carpeta, el programa la mantiene por defecto hasta que elijas otra.",
             justify="left",
             anchor="w",
+            wraplength=560,
             font=("Arial", 10, "bold"),
         ).pack(anchor="w", pady=(4, 0))
 
+        # Logo JDM Developer
         logo_path = get_logo_path("logodeveloper.png")
         if os.path.exists(logo_path):
             img = Image.open(logo_path)
             img = img.resize((140, 140))
             self.logo_img = ImageTk.PhotoImage(img)
-            tk.Label(top_frame, image=self.logo_img).pack(side=tk.RIGHT, padx=10)
+            tk.Label(right_frame, image=self.logo_img).pack(expand=True)
 
         botones_frame = tk.Frame(self)
         botones_frame.pack(pady=5)
@@ -179,6 +195,8 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="IR A IMPAGOS", command=self.ir_a_impagos, bg="#ff6b6b", fg="black").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=lambda: self.notebook.select(self.tabs.get("Incidencias Club")), bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
 
+        style = ttk.Style()
+        style.configure("TNotebook.Tab", font=("Arial", 9, "bold"), padding=[24, 6], anchor="w")
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(expand=1, fill='both')
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
