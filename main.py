@@ -3226,13 +3226,26 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
         """
         Abre Outlook con un borrador para felicitar cumpleanos (1 vez por año).
         """
+        self._bring_to_front()
+        pin = simpledialog.askstring(
+            "Codigo de seguridad",
+            "Introduce el codigo de seguridad:",
+            show="*",
+            parent=self,
+        )
+        if pin is None:
+            return
+        if pin.strip() != get_security_code():
+            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
+            return
+
         try:
             df = obtener_cumpleanos_hoy()
         except Exception:
             df = None
 
         if df is None or df.empty:
-            messagebox.showinfo("Cumpleanos", "No hay cumpleanos para hoy.")
+            messagebox.showinfo("Cumplea\u00f1os", "No hay cumplea\u00f1os para hoy.")
             return
 
         def normalize(text):
@@ -3243,7 +3256,7 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
         col_email = colmap.get("CORREO ELECTRONICO") or colmap.get("EMAIL") or colmap.get("CORREO")
 
         if not col_email:
-            messagebox.showwarning("Cumpleanos", "No se encontro columna de email.")
+            messagebox.showwarning("Cumplea\u00f1os", "No se encontro columna de email.")
             return
 
         current_year = datetime.now().year
@@ -3258,14 +3271,13 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
             emails.append(email)
 
         if not emails:
-            messagebox.showinfo("Cumpleanos", "No hay cumpleanos pendientes de enviar.")
+            messagebox.showinfo("Cumplea\u00f1os", "No hay cumplea\u00f1os pendientes de enviar.")
             return
 
-        asunto = "Feliz cumpleanos"
+        asunto = "Feliz cumple\u00f1os"
         cuerpo_html = (
             '<div style="font-family:Arial,sans-serif;font-size:14px;">'
-            "<p>Feliz cumpleanos.</p>"
-            '<img src="cid:{{CID}}" alt="Feliz cumpleanos" style="max-width:100%;">'
+            '<img src="cid:{{CID}}" alt="Feliz cumple\u00f1os" style="max-width:100%;">'
             "</div>"
         )
         imagen_path = get_logo_path("feliz_cumpleanos.png")
