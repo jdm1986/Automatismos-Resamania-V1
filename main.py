@@ -329,6 +329,16 @@ class ResamaniaApp(tk.Tk):
         accesos_tab = self.tabs.get("Accesos")
         if accesos_tab and tree is accesos_tab.tree and self.accesos_grupo_actual == "Salidas PMR Autorizados":
             menu.add_command(label="Quitar autorizacion", command=self.pmr_quitar_autorizado)
+        if hasattr(self, "tree_prestamos") and tree is self.tree_prestamos:
+            row = tree.identify_row(event.y)
+            if row:
+                tree.selection_set(row)
+            menu.add_separator()
+            menu.add_command(label="Check devuelto", command=self.marcar_devuelto)
+            menu.add_command(label="Enviar aviso email", command=self.enviar_aviso_prestamo)
+            menu.add_command(label="Enviar aviso Whatsapp", command=self.abrir_whatsapp_prestamo)
+            menu.add_command(label="Vista individual/colectiva", command=self.toggle_prestamos_vista)
+            menu.add_command(label="Eliminar prestamo", command=self.eliminar_prestamo)
         menu.post(event.x_root, event.y_root)
 
     def create_accesos_tab(self, tab):
@@ -901,31 +911,25 @@ class ResamaniaApp(tk.Tk):
         tk.Button(top, text="Buscar", command=self.buscar_cliente_prestamo).pack(side="left", padx=5)
         tk.Button(top, text="Editar cliente manual", command=self.editar_cliente_manual).pack(side="left", padx=5)
         tk.Button(top, text="AGREGAR CLIENTE DE OTRO FITNESS PARK", command=self.agregar_cliente_otro_fp, bg="#ff7043", fg="white").pack(side="left", padx=5)
+        tk.Button(top, text="NUEVO PRESTAMO", command=self.nuevo_prestamo, bg="#ffcc80", fg="black").pack(side="left", padx=5)
         self.lbl_info = tk.Label(top, text="", anchor="w")
         self.lbl_info.pack(side="left", padx=10)
 
-        mid = tk.Frame(frm)
-        mid.pack(fill="x", pady=6)
-        tk.Label(mid, text="Material prestado:").pack(side="left")
-        self.prestamo_material = tk.Entry(mid, width=40)
-        self.prestamo_material.pack(side="left", padx=5)
-        tk.Button(mid, text="Guardar prestamo", command=self.guardar_prestamo, bg="#ffd54f", fg="black").pack(side="left", padx=5)
-        tk.Button(mid, text="CHECK DEVUELTO", command=self.marcar_devuelto, bg="#8bc34a", fg="black").pack(side="left", padx=5)
-        tk.Button(mid, text="Enviar aviso email", command=self.enviar_aviso_prestamo, bg="#e53935", fg="white").pack(side="left", padx=5)
-        tk.Button(mid, text="Enviar aviso Whatsapp", command=self.abrir_whatsapp_prestamo, bg="#e53935", fg="white").pack(side="left", padx=5)
-        tk.Button(mid, text="VISTA INDIVIDUAL/COLECTIVA", command=self.toggle_prestamos_vista, bg="#bdbdbd", fg="black").pack(side="left", padx=5)
+        # Material prestado (entrada oculta, se usa en Nuevo Prestamo)
+        self.prestamo_material = tk.Entry(frm)
 
         self.lbl_perdon = tk.Label(frm, text="", fg="red", font=("", 10, "bold"))
         self.lbl_perdon.pack(fill="x", padx=5, pady=2)
 
-        cols = ["codigo", "nombre", "apellidos", "email", "movil", "material", "fecha", "devuelto", "liberado_pin"]
+        cols = ["codigo", "nombre", "apellidos", "email", "movil", "material", "fecha", "devuelto", "prestado_por"]
         table = tk.Frame(frm)
         table.pack(fill="both", expand=True)
         table.rowconfigure(0, weight=1)
         table.columnconfigure(0, weight=1)
         tree = ttk.Treeview(table, columns=cols, show="headings")
+        tree["displaycolumns"] = cols
         for c in cols:
-            heading = "Liberado por PIN" if c == "liberado_pin" else c.capitalize()
+            heading = "Prestado por" if c == "prestado_por" else c.capitalize()
             tree.heading(c, text=heading)
             tree.column(c, anchor="center")
         tree.grid(row=0, column=0, sticky="nsew")
@@ -1142,6 +1146,21 @@ class ResamaniaApp(tk.Tk):
         self.prestamo_codigo.insert(0, codigo)
         self.buscar_cliente_prestamo()
 
+    def nuevo_prestamo(self):
+        if not getattr(self, "prestamo_encontrado", None):
+            messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
+            return
+        staff = self._staff_select("Prestamo", "Quien hace el prestamo?")
+        if not staff:
+            return
+        prestado_por = self._staff_display_name(staff)
+        material = self._incidencias_prompt_text("Prestamo", "Que material se presta?")
+        if material is None:
+            return
+        self.prestamo_material.delete(0, tk.END)
+        self.prestamo_material.insert(0, material)
+        self.guardar_prestamo(prestado_por=prestado_por)
+
     def editar_cliente_manual(self):
         """
         Permite editar los datos de un cliente manual (solo los que viven en clientes_ext).
@@ -1225,7 +1244,7 @@ class ResamaniaApp(tk.Tk):
         self.lbl_perdon.config(text="")
         messagebox.showinfo("Cliente agregado", f"Cliente {codigo} añadido como externo.")
 
-    def guardar_prestamo(self):
+    def guardar_prestamo(self, prestado_por=""):
         if not getattr(self, "prestamo_encontrado", None):
             messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
             return
@@ -1267,6 +1286,7 @@ class ResamaniaApp(tk.Tk):
         prestamo = {
             "id": uuid.uuid4().hex,
             **self.prestamo_encontrado,
+            "prestado_por": prestado_por or "",
             "material": material,
             "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "devuelto": False,
@@ -1309,6 +1329,33 @@ class ResamaniaApp(tk.Tk):
         # Si se marcó manualmente, no tocar liberado_pin (permite conservar histórico)
         self.guardar_prestamos_json()
         self.refrescar_prestamos_tree()
+
+    def eliminar_prestamo(self):
+        sel = self.tree_prestamos.selection()
+        if not sel:
+            messagebox.showwarning("Sin seleccion", "Selecciona un prestamo.")
+            return
+        if not messagebox.askyesno("Eliminar", "Eliminar este prestamo?", parent=self):
+            return
+        iid = sel[0]
+        eliminado = False
+        for p in list(self.prestamos):
+            if p.get("id") == iid:
+                self.prestamos.remove(p)
+                eliminado = True
+                break
+        if not eliminado:
+            vals = self.tree_prestamos.item(iid)["values"]
+            if len(vals) >= 7:
+                codigo_sel, material_sel, fecha_sel = vals[0], vals[5], vals[6]
+                for p in list(self.prestamos):
+                    if p.get("codigo") == codigo_sel and p.get("material") == material_sel and p.get("fecha") == fecha_sel:
+                        self.prestamos.remove(p)
+                        eliminado = True
+                        break
+        if eliminado:
+            self.guardar_prestamos_json()
+            self.refrescar_prestamos_tree()
 
     def enviar_aviso_prestamo(self):
         sel = self.tree_prestamos.selection()
@@ -1460,8 +1507,7 @@ class ResamaniaApp(tk.Tk):
             self.tree_prestamos.insert("", "end", values=[
                 p.get("codigo", ""), p.get("nombre", ""), p.get("apellidos", ""),
                 p.get("email", ""), p.get("movil", ""), p.get("material", ""),
-                p.get("fecha", ""), "SI" if p.get("devuelto") else "NO",
-                "SI" if p.get("liberado_pin") else "NO"
+                p.get("fecha", ""), "SI" if p.get("devuelto") else "NO", p.get("prestado_por", "")
             ], tags=(tag,), iid=iid)
 
     # -----------------------------
@@ -1888,7 +1934,6 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones, text="Info máquinas", command=self.incidencias_info_maquinas).pack(side="left", padx=5)
         tk.Button(botones, text="Crear Incidencia", command=self.incidencias_crear_incidencia).pack(side="left", padx=5)
         tk.Button(botones, text="Gestión Incidencias", command=self.incidencias_gestion_incidencias).pack(side="left", padx=5)
-        tk.Button(botones, text="Staff", command=self.incidencias_staff).pack(side="left", padx=5)
 
         body = tk.Frame(frm)
         body.pack(fill="both", expand=True)
