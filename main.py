@@ -74,6 +74,11 @@ class ResamaniaApp(tk.Tk):
         self.clientes_ext_file = os.path.join("data", "clientes_ext.json")
         self.clientes_ext = []
         self.prestamos_filtro_activo = False
+        self.incidencias_socios_file = os.path.join("data", "incidencias_socios.json")
+        self.incidencias_socios = []
+        self.incidencias_socios_filtro = "TODAS"
+        self.incidencias_socios_encontrado = None
+        self.incidencias_filtro_estado = "TODAS"
 
         # Felicitaciones (persistencia anual)
         self.felicitaciones_file = os.path.join("data", "felicitaciones.json")
@@ -125,6 +130,7 @@ class ResamaniaApp(tk.Tk):
         self.create_widgets()
         self.cargar_clientes_ext()
         self.cargar_prestamos_json()
+        self.cargar_incidencias_socios()
         self.cargar_felicitaciones()
         self.cargar_staff()
         self.cargar_pmr_autorizados()
@@ -199,6 +205,7 @@ class ResamaniaApp(tk.Tk):
 
         botones_frame = tk.Frame(self)
         botones_frame.pack(pady=5)
+        tk.Button(botones_frame, text="STAFF", command=self.abrir_staff, bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Actualizar datos", command=self.load_data).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
@@ -209,8 +216,8 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="EXTRAER ACCESOS", command=self.extraer_accesos, fg="#0066cc").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="IR A PRÉSTAMOS", command=lambda: self.notebook.select(self.tabs.get("Prestamos")), bg="#ff9800", fg="black").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="IR A IMPAGOS", command=self.ir_a_impagos, bg="#ff6b6b", fg="black").pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="STAFF", command=self.abrir_staff, bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=lambda: self.notebook.select(self.tabs.get("Incidencias Club")), bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="INCIDENCIAS SOCIOS", command=lambda: self.notebook.select(self.tabs.get("Incidencias Socios")), bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=10)
 
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("Arial", 9, "bold"), padding=[24, 6], anchor="w")
@@ -234,6 +241,7 @@ class ResamaniaApp(tk.Tk):
             "Prestamos": "#ffb74d",
             "Impagos": "#ff6b6b",
             "Incidencias Club": "#424242",
+            "Incidencias Socios": "#9e9e9e",
         }
         self.tab_icons = {}
 
@@ -251,7 +259,7 @@ class ResamaniaApp(tk.Tk):
             "Accesos Dobles", "Accesos Descuadrados",
             "Salidas PMR No Autorizadas", "Morosos Accediendo",
             "Socios Ultimate", "Socios Yanga",
-            "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club"
+            "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios"
         ]:
             tab = ttk.Frame(self.notebook)
             color = tab_colors.get(tab_name, "#cccccc")
@@ -266,6 +274,8 @@ class ResamaniaApp(tk.Tk):
                 self.create_servicios_tab(tab)
             elif tab_name == "Prestamos":
                 self.create_prestamos_tab(tab)
+            elif tab_name == "Incidencias Socios":
+                self.create_incidencias_socios_tab(tab)
             elif tab_name == "Impagos":
                 self.create_impagos_tab(tab)
             elif tab_name == "Incidencias Club":
@@ -1442,6 +1452,268 @@ class ResamaniaApp(tk.Tk):
             self.prestamos = []
         self.refrescar_prestamos_tree()
 
+    def cargar_incidencias_socios(self):
+        try:
+            if os.path.exists(self.incidencias_socios_file):
+                with open(self.incidencias_socios_file, "r", encoding="utf-8") as f:
+                    self.incidencias_socios = json.load(f)
+            else:
+                self.incidencias_socios = []
+            changed = False
+            for inc in self.incidencias_socios:
+                if "id" not in inc:
+                    inc["id"] = uuid.uuid4().hex
+                    changed = True
+            if changed:
+                self.guardar_incidencias_socios()
+        except Exception:
+            self.incidencias_socios = []
+        if hasattr(self, "tree_incidencias_socios"):
+            self.refrescar_incidencias_socios_tree()
+
+    def guardar_incidencias_socios(self):
+        os.makedirs(os.path.dirname(self.incidencias_socios_file), exist_ok=True)
+        with open(self.incidencias_socios_file, "w", encoding="utf-8") as f:
+            json.dump(self.incidencias_socios, f, ensure_ascii=False, indent=2)
+
+    def refrescar_incidencias_socios_tree(self):
+        if not hasattr(self, "tree_incidencias_socios"):
+            return
+        tree = self.tree_incidencias_socios
+        tree.delete(*tree.get_children())
+        filtro = (self.incidencias_socios_filtro or "TODAS").upper()
+        for inc in sorted(self.incidencias_socios, key=lambda i: i.get("fecha", ""), reverse=True):
+            estado = str(inc.get("estado", "PENDIENTE")).upper()
+            if filtro != "TODAS" and estado != filtro:
+                continue
+            reporte = "R" if inc.get("reporte_path") else ""
+            values = [
+                inc.get("codigo", ""),
+                inc.get("nombre", ""),
+                inc.get("apellidos", ""),
+                inc.get("email", ""),
+                inc.get("movil", ""),
+                inc.get("incidencia", ""),
+                inc.get("fecha", ""),
+                estado,
+                reporte,
+                inc.get("prestado_por", ""),
+            ]
+            tree.insert("", "end", iid=inc.get("id"), values=values)
+
+    def buscar_cliente_incidencia_socio(self):
+        codigo = self.incidencia_socios_codigo.get().strip()
+        if not codigo:
+            messagebox.showwarning("Sin numero", "Introduce el numero de cliente.")
+            return
+        cliente = None
+        if self.resumen_df is not None:
+            colmap = {self._norm(c): c for c in self.resumen_df.columns}
+            col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
+            col_nom = colmap.get("NOMBRE")
+            col_ape = colmap.get("APELLIDOS")
+            col_mail = colmap.get("CORREO ELECTRONICO") or colmap.get("EMAIL") or colmap.get("CORREO")
+            col_movil = colmap.get("MOVIL") or colmap.get("TELEFONO MOVIL") or colmap.get("NUMERO DE TELEFONO")
+            if col_codigo:
+                fila = self.resumen_df[self.resumen_df[col_codigo].astype(str).str.strip() == codigo]
+                if not fila.empty:
+                    row = fila.iloc[0]
+                    cliente = {
+                        "codigo": codigo,
+                        "nombre": row.get(col_nom, ""),
+                        "apellidos": row.get(col_ape, ""),
+                        "email": row.get(col_mail, ""),
+                        "movil": self._normalizar_movil(row.get(col_movil, "")),
+                    }
+        if not cliente:
+            ext = [c for c in self.clientes_ext if c.get("codigo") == codigo]
+            if ext:
+                cliente = ext[0].copy()
+                cliente["movil"] = self._normalizar_movil(cliente.get("movil", ""))
+        if not cliente:
+            messagebox.showwarning("Sin cliente", "No se encontro el cliente.")
+            return
+        self.incidencias_socios_encontrado = cliente
+        info = f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}"
+        self.lbl_incidencias_socios_info.config(text=info)
+
+    def nueva_incidencia_socio(self):
+        if not getattr(self, "incidencias_socios_encontrado", None):
+            messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
+            return
+        staff = self._staff_select("Incidencia socio", "Quien registra la incidencia?")
+        if not staff:
+            return
+        prestado_por = self._staff_display_name(staff)
+        incidencia = self._incidencias_prompt_text("Incidencia socio", "Cual es la incidencia?")
+        if incidencia is None:
+            return
+        reporte_path = None
+        if messagebox.askyesno("Reporte visual", "Desea agregar reporte visual?", parent=self):
+            reporte_path = self._incidencias_pedir_reporte_visual()
+        cliente = self.incidencias_socios_encontrado
+        inc = {
+            "id": uuid.uuid4().hex,
+            "codigo": cliente.get("codigo", ""),
+            "nombre": cliente.get("nombre", ""),
+            "apellidos": cliente.get("apellidos", ""),
+            "email": cliente.get("email", ""),
+            "movil": cliente.get("movil", ""),
+            "incidencia": incidencia.strip(),
+            "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "estado": "PENDIENTE",
+            "reporte_path": reporte_path,
+            "prestado_por": prestado_por,
+        }
+        self.incidencias_socios.append(inc)
+        self.guardar_incidencias_socios()
+        self.refrescar_incidencias_socios_tree()
+        messagebox.showinfo("Guardado", "Incidencia registrada.")
+
+    def _socios_selector_estado(self):
+        self._bring_to_front()
+        win = tk.Toplevel(self)
+        win.title("Estado")
+        win.transient(self)
+        win.resizable(False, False)
+        tk.Label(win, text="Selecciona estado:").pack(padx=10, pady=5)
+        opciones = ["PENDIENTE", "VISTO", "RESUELTO"]
+        var = tk.StringVar(value=opciones[0])
+        combo = ttk.Combobox(win, values=opciones, textvariable=var, state="readonly", width=20)
+        combo.pack(padx=10, pady=5)
+        combo.focus_set()
+        res = {"val": None}
+
+        def aceptar():
+            res["val"] = var.get()
+            win.destroy()
+
+        tk.Button(win, text="Aceptar", command=aceptar).pack(pady=6)
+        win.bind("<Return>", lambda _e: aceptar())
+        win.bind("<Escape>", lambda _e: win.destroy())
+        self._incidencias_center_window(win)
+        win.grab_set()
+        win.wait_window()
+        return res["val"]
+
+    def _socios_cambiar_estado(self, inc_id):
+        estado = self._socios_selector_estado()
+        if not estado:
+            return
+        for inc in self.incidencias_socios:
+            if inc.get("id") == inc_id:
+                inc["estado"] = estado
+                break
+        self.guardar_incidencias_socios()
+        self.refrescar_incidencias_socios_tree()
+
+    def _socios_editar_incidencia(self, inc_id):
+        inc = next((i for i in self.incidencias_socios if i.get("id") == inc_id), None)
+        if not inc:
+            return
+        self._bring_to_front()
+        incidencia = self._incidencias_prompt_text("Incidencia", "Cual es la incidencia?", inc.get("incidencia", ""))
+        if incidencia is None:
+            return
+        inc["incidencia"] = incidencia.strip()
+        if messagebox.askyesno("Reporte visual", "Desea cambiar reporte visual?", parent=self):
+            nuevo = self._incidencias_pedir_reporte_visual()
+            if nuevo:
+                inc["reporte_path"] = nuevo
+        self.guardar_incidencias_socios()
+        self.refrescar_incidencias_socios_tree()
+
+    def _socios_ver_reporte(self, inc_id):
+        inc = next((i for i in self.incidencias_socios if i.get("id") == inc_id), None)
+        if not inc:
+            return
+        reporte = inc.get("reporte_path")
+        if not reporte:
+            messagebox.showwarning("Reporte", "No hay reporte visual.")
+            return
+        self._incidencias_ver_reporte(reporte)
+
+    def _socios_modificar_reporte(self, inc_id):
+        inc = next((i for i in self.incidencias_socios if i.get("id") == inc_id), None)
+        if not inc:
+            return
+        nuevo = self._incidencias_pedir_reporte_visual()
+        if not nuevo:
+            return
+        inc["reporte_path"] = nuevo
+        self.guardar_incidencias_socios()
+        self.refrescar_incidencias_socios_tree()
+
+    def _socios_eliminar_incidencia(self, inc_id):
+        if not messagebox.askyesno("Eliminar", "Eliminar esta incidencia?", parent=self):
+            return
+        self.incidencias_socios = [i for i in self.incidencias_socios if i.get("id") != inc_id]
+        self.guardar_incidencias_socios()
+        self.refrescar_incidencias_socios_tree()
+
+    def _socios_set_filtro(self, estado):
+        self.incidencias_socios_filtro = estado
+        self.refrescar_incidencias_socios_tree()
+
+    def create_incidencias_socios_tab(self, tab):
+        frm = tk.Frame(tab)
+        frm.pack(fill="both", expand=True, padx=10, pady=10)
+
+        top = tk.Frame(frm)
+        top.pack(fill="x", pady=4)
+        tk.Label(top, text="Numero de cliente:").pack(side="left")
+        self.incidencia_socios_codigo = tk.Entry(top, width=14)
+        self.incidencia_socios_codigo.pack(side="left", padx=5)
+        tk.Button(top, text="Buscar", command=self.buscar_cliente_incidencia_socio).pack(side="left", padx=5)
+        tk.Button(top, text="Nueva incidencia", command=self.nueva_incidencia_socio, bg="#ffcc80", fg="black").pack(side="left", padx=5)
+        vista_btn = tk.Menubutton(top, text="VISTA", bg="#bdbdbd", fg="black")
+        vista_menu = tk.Menu(vista_btn, tearoff=0)
+        vista_menu.add_command(label="TODAS LAS INCIDENCIAS", command=lambda: self._socios_set_filtro("TODAS"))
+        vista_menu.add_command(label="PENDIENTES", command=lambda: self._socios_set_filtro("PENDIENTE"))
+        vista_menu.add_command(label="VISTAS", command=lambda: self._socios_set_filtro("VISTO"))
+        vista_menu.add_command(label="RESUELTAS", command=lambda: self._socios_set_filtro("RESUELTO"))
+        vista_btn.configure(menu=vista_menu)
+        vista_btn.pack(side="left", padx=5)
+        self.lbl_incidencias_socios_info = tk.Label(top, text="", anchor="w")
+        self.lbl_incidencias_socios_info.pack(side="left", padx=10)
+
+        cols = ["codigo", "nombre", "apellidos", "email", "movil", "incidencia", "fecha", "estado", "reporte", "prestado_por"]
+        table = tk.Frame(frm)
+        table.pack(fill="both", expand=True)
+        table.rowconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
+        tree = ttk.Treeview(table, columns=cols, show="headings")
+        for c in cols:
+            heading = "Registrado por" if c == "prestado_por" else c.capitalize()
+            tree.heading(c, text=heading)
+            tree.column(c, anchor="center")
+        tree.grid(row=0, column=0, sticky="nsew")
+        vscroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
+        vscroll.grid(row=0, column=1, sticky="ns")
+        hscroll = ttk.Scrollbar(table, orient="horizontal", command=tree.xview)
+        hscroll.grid(row=1, column=0, sticky="ew")
+        tree.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+        tree.bind("<Control-c>", lambda e: self.copiar_celda(e, tree))
+
+        def on_right_click(event):
+            row = tree.identify_row(event.y)
+            if not row:
+                return
+            tree.selection_set(row)
+            menu = tk.Menu(tree, tearoff=0)
+            menu.add_command(label="Modificar incidencia", command=lambda: self._socios_editar_incidencia(row))
+            menu.add_command(label="Cambiar estado", command=lambda: self._socios_cambiar_estado(row))
+            menu.add_command(label="Ver reporte visual", command=lambda: self._socios_ver_reporte(row))
+            menu.add_command(label="Modificar reporte visual", command=lambda: self._socios_modificar_reporte(row))
+            menu.add_command(label="Eliminar incidencia", command=lambda: self._socios_eliminar_incidencia(row))
+            menu.add_command(label="Copiar", command=lambda: self.copiar_celda(event, tree))
+            menu.post(event.x_root, event.y_root)
+
+        tree.bind("<Button-3>", on_right_click)
+        self.tree_incidencias_socios = tree
+        tab.tree = tree
+        self.refrescar_incidencias_socios_tree()
+
     def cargar_clientes_ext(self):
         try:
             if os.path.exists(self.clientes_ext_file):
@@ -1486,6 +1758,7 @@ class ResamaniaApp(tk.Tk):
         if not hasattr(self, "tree_prestamos"):
             return
         self.tree_prestamos.delete(*self.tree_prestamos.get_children())
+        self.tree_prestamos["displaycolumns"] = ["codigo", "nombre", "apellidos", "email", "movil", "material", "fecha", "devuelto", "prestado_por"]
         # Ordenar de más reciente a más antiguo por fecha
         ordenados = sorted(
             self.prestamos,
@@ -1934,6 +2207,14 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones, text="Info máquinas", command=self.incidencias_info_maquinas).pack(side="left", padx=5)
         tk.Button(botones, text="Crear Incidencia", command=self.incidencias_crear_incidencia).pack(side="left", padx=5)
         tk.Button(botones, text="Gestión Incidencias", command=self.incidencias_gestion_incidencias).pack(side="left", padx=5)
+        vista_btn = tk.Menubutton(botones, text="VISTA", bg="#bdbdbd", fg="black")
+        vista_menu = tk.Menu(vista_btn, tearoff=0)
+        vista_menu.add_command(label="TODAS LAS INCIDENCIAS", command=lambda: self._incidencias_set_filtro_estado("TODAS"))
+        vista_menu.add_command(label="PENDIENTES", command=lambda: self._incidencias_set_filtro_estado("PENDIENTE"))
+        vista_menu.add_command(label="VISTAS", command=lambda: self._incidencias_set_filtro_estado("VISTO"))
+        vista_menu.add_command(label="REPARADAS", command=lambda: self._incidencias_set_filtro_estado("REPARADO"))
+        vista_btn.configure(menu=vista_menu)
+        vista_btn.pack(side="left", padx=5)
 
         body = tk.Frame(frm)
         body.pack(fill="both", expand=True)
@@ -2573,6 +2854,10 @@ class ResamaniaApp(tk.Tk):
             self._bring_to_front()
             messagebox.showinfo("Incidencia", "Haz click sobre el area en el mapa.", parent=self)
 
+    def _incidencias_set_filtro_estado(self, estado):
+        self.incidencias_filtro_estado = estado
+        self.incidencias_gestion_incidencias()
+
     def incidencias_gestion_incidencias(self):
         self.incidencias_panel_mode = "incidencias"
         self.incidencias_info_filter_area = None
@@ -2610,6 +2895,7 @@ class ResamaniaApp(tk.Tk):
         tree.tag_configure("visto", background="#fff3cd")
         tree.tag_configure("reparado", background="#d4edda")
         self.incidencias_area_to_inc = {}
+        filtro_estado = (self.incidencias_filtro_estado or "TODAS").upper()
         for inc in self.incidencias_db.list_incidencias(self.incidencias_current_map):
             (
                 inc_id,
@@ -2628,6 +2914,8 @@ class ResamaniaApp(tk.Tk):
                 serie,
                 numero,
             ) = inc
+            if filtro_estado != "TODAS" and estado != filtro_estado:
+                continue
             creador = " ".join([p for p in [creador_nombre, creador_apellido1] if p]).strip()
             tag = ""
             if estado == "PENDIENTE":
