@@ -84,6 +84,10 @@ class ResamaniaApp(tk.Tk):
         self.impagos_last_export = None
         self.impagos_view = tk.StringVar(value="actuales")
 
+        # Staff
+        self.staff_file = os.path.join("data", "staff.json")
+        self.staff = []
+
         # Incidencias Club
         self.incidencias_db = IncidenciasDB(os.path.join("data", "incidencias.db"))
         self.incidencias_mapas = []
@@ -108,6 +112,7 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_hover_blink_item = None
         self.incidencias_hover_blink_after = None
         self.incidencias_hover_blink_original = None
+        self.incidencias_creador = None
 
         # Salidas PMR autorizados/advertidos
         self.pmr_autorizados_file = os.path.join("data", "pmr_autorizados.json")
@@ -121,6 +126,7 @@ class ResamaniaApp(tk.Tk):
         self.cargar_clientes_ext()
         self.cargar_prestamos_json()
         self.cargar_felicitaciones()
+        self.cargar_staff()
         self.cargar_pmr_autorizados()
         self.cargar_pmr_advertencias()
         if self.folder_path:
@@ -203,6 +209,7 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="EXTRAER ACCESOS", command=self.extraer_accesos, fg="#0066cc").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="IR A PRÉSTAMOS", command=lambda: self.notebook.select(self.tabs.get("Prestamos")), bg="#ff9800", fg="black").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="IR A IMPAGOS", command=self.ir_a_impagos, bg="#ff6b6b", fg="black").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="STAFF", command=self.abrir_staff, bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=lambda: self.notebook.select(self.tabs.get("Incidencias Club")), bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
 
         style = ttk.Style()
@@ -737,6 +744,71 @@ class ResamaniaApp(tk.Tk):
             self.guardar_pmr_autorizados()
             self.pmr_mostrar_autorizados()
             self._pmr_refrescar_listado()
+
+    def cargar_staff(self):
+        if os.path.exists(self.staff_file):
+            try:
+                with open(self.staff_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    self.staff = data
+                    for item in self.staff:
+                        if "id" not in item:
+                            item["id"] = uuid.uuid4().hex
+                        if "movil" in item:
+                            item["movil"] = self._normalizar_movil(item.get("movil", ""))
+            except Exception:
+                self.staff = []
+
+    def guardar_staff(self):
+        os.makedirs(os.path.dirname(self.staff_file), exist_ok=True)
+        with open(self.staff_file, "w", encoding="utf-8") as f:
+            json.dump(self.staff, f, ensure_ascii=False, indent=2)
+
+    def _staff_display_name(self, item):
+        nombre = str(item.get("nombre", "")).strip()
+        ap1 = str(item.get("apellido1", "")).strip()
+        return " ".join([p for p in [nombre, ap1] if p]).strip()
+
+    def _staff_label(self, item):
+        base = self._staff_display_name(item)
+        email = str(item.get("email", "")).strip()
+        if email:
+            return f"{base} ({email})"
+        return base
+
+    def _staff_select(self, title, prompt):
+        if not self.staff:
+            messagebox.showwarning("Staff", "No hay staff registrado.")
+            return None
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.transient(self)
+        win.resizable(False, False)
+        tk.Label(win, text=prompt).pack(padx=10, pady=6)
+        opciones = [self._staff_label(s) for s in self.staff]
+        var = tk.StringVar(value=opciones[0] if opciones else "")
+        combo = ttk.Combobox(win, values=opciones, textvariable=var, state="readonly", width=40)
+        combo.pack(padx=10, pady=6)
+        combo.focus_set()
+        res = {"item": None}
+
+        def aceptar():
+            sel = var.get()
+            for s in self.staff:
+                if self._staff_label(s) == sel:
+                    res["item"] = s
+                    break
+            win.destroy()
+
+        btn = tk.Button(win, text="Aceptar", command=aceptar)
+        btn.pack(pady=6)
+        win.bind("<Return>", lambda _e: aceptar())
+        win.bind("<Escape>", lambda _e: win.destroy())
+        self._incidencias_center_window(win)
+        win.grab_set()
+        win.wait_window()
+        return res["item"]
 
     def select_folder(self):
         folder = filedialog.askdirectory()
@@ -1273,7 +1345,11 @@ class ResamaniaApp(tk.Tk):
         except Exception as e:
             self.clipboard_clear()
             self.clipboard_append(cuerpo)
-            messagebox.showerror("Error con Outlook", f"No se pudo crear el correo.\nDetalle: {e}")
+            messagebox.showerror(
+                "Error con Outlook",
+                f"No se pudo crear el correo en Outlook.\n"
+                f"Cuerpo copiado al portapapeles para pegarlo manualmente.\n\nDetalle: {e}"
+            )
 
     def abrir_whatsapp_prestamo(self):
         sel = self.tree_prestamos.selection()
@@ -1812,6 +1888,7 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones, text="Info máquinas", command=self.incidencias_info_maquinas).pack(side="left", padx=5)
         tk.Button(botones, text="Crear Incidencia", command=self.incidencias_crear_incidencia).pack(side="left", padx=5)
         tk.Button(botones, text="Gestión Incidencias", command=self.incidencias_gestion_incidencias).pack(side="left", padx=5)
+        tk.Button(botones, text="Staff", command=self.incidencias_staff).pack(side="left", padx=5)
 
         body = tk.Frame(frm)
         body.pack(fill="both", expand=True)
@@ -2058,6 +2135,13 @@ class ResamaniaApp(tk.Tk):
         except Exception as exc:
             messagebox.showerror("Reporte visual", f"No se pudo guardar el reporte.\nDetalle: {exc}", parent=self)
 
+    def _incidencias_chat_trabajador(self, movil):
+        movil = self._normalizar_movil(movil)
+        if not movil:
+            messagebox.showwarning("Chat", "El trabajador no tiene movil.", parent=self)
+            return
+        url = f"https://wa.me/{movil}"
+        webbrowser.open(url)
 
     def incidencias_cargar_listado_mapas(self):
         self.incidencias_mapas = self.incidencias_db.list_maps()
@@ -2290,8 +2374,150 @@ class ResamaniaApp(tk.Tk):
         tree.bind("<Button-3>", lambda e: (setattr(tree, 'event_context', e), menu.post(e.x_root, e.y_root)))
         self.incidencias_machines_tree = tree
 
+    def incidencias_staff(self):
+        if not self._incidencias_pin_ok():
+            return
+        self.incidencias_panel_mode = "staff"
+        self.incidencias_info_filter_area = None
+        self._incidencias_set_area_header(None)
+        self._incidencias_apply_map_filter(None)
+        for w in self.incidencias_panel.winfo_children():
+            w.destroy()
+        container = tk.Frame(self.incidencias_panel)
+        container.pack(fill="both", expand=True)
+        header = tk.Frame(container)
+        header.pack(fill="x", pady=4)
+        tk.Button(header, text="Agregar Staff", command=self._staff_agregar).pack(side="left", padx=5)
+        tk.Label(header, text="Buscar:").pack(side="left", padx=(10, 4))
+        filtro_var = tk.StringVar()
+        filtro_entry = tk.Entry(header, textvariable=filtro_var, width=24)
+        filtro_entry.pack(side="left", padx=5)
+
+        cols = ["nombre", "apellido1", "apellido2", "movil", "email"]
+        tree = ttk.Treeview(container, columns=cols, show="headings")
+        for c in cols:
+            tree.heading(c, text=c.capitalize())
+            tree.column(c, anchor="center")
+        tree.column("nombre", width=140, stretch=True)
+        tree.column("apellido1", width=140, stretch=True)
+        tree.column("apellido2", width=140, stretch=True)
+        tree.column("movil", width=140, stretch=True)
+        tree.column("email", width=220, stretch=True)
+        tree.pack(fill="both", expand=True)
+
+        def populate(filter_text=""):
+            tree.delete(*tree.get_children())
+            needle = filter_text.strip().lower()
+            for item in self.staff:
+                values = [
+                    item.get("nombre", ""),
+                    item.get("apellido1", ""),
+                    item.get("apellido2", ""),
+                    item.get("movil", ""),
+                    item.get("email", ""),
+                ]
+                haystack = " ".join(str(v) for v in values).lower()
+                if needle and needle not in haystack:
+                    continue
+                tree.insert("", "end", iid=item.get("id"), values=values)
+
+        populate()
+        filtro_entry.bind("<KeyRelease>", lambda _e: populate(filtro_var.get()))
+
+        def copy_cell(event):
+            row = tree.identify_row(event.y)
+            col = tree.identify_column(event.x)
+            if not row or not col:
+                return
+            col_index = int(col[1:]) - 1
+            values = tree.item(row, "values")
+            if col_index >= len(values):
+                return
+            value = values[col_index]
+            self.clipboard_clear()
+            self.clipboard_append(str(value))
+            self.update()
+
+        def on_right_click(event):
+            item = tree.identify_row(event.y)
+            if not item:
+                return
+            values = tree.item(item, "values")
+            movil = values[3] if len(values) > 3 else ""
+            menu = tk.Menu(tree, tearoff=0)
+            menu.add_command(label="Editar", command=lambda: self._staff_editar(item))
+            menu.add_command(label="Eliminar", command=lambda: self._staff_eliminar(item))
+            if movil:
+                menu.add_command(label="Abrir chat", command=lambda: self._staff_open_chat(movil))
+            menu.add_command(label="Copiar", command=lambda: copy_cell(event))
+            menu.post(event.x_root, event.y_root)
+
+        tree.bind("<Button-3>", on_right_click)
+        self.incidencias_staff_tree = tree
+        filtro_entry.focus_set()
+
+    def _staff_agregar(self):
+        self._bring_to_front()
+        nombre = self._incidencias_prompt_text("Staff", "Nombre:")
+        if nombre is None:
+            return
+        apellido1 = self._incidencias_prompt_text("Staff", "Apellido 1:")
+        apellido2 = self._incidencias_prompt_text("Staff", "Apellido 2:")
+        movil = self._incidencias_prompt_text("Staff", "Movil:")
+        email = self._incidencias_prompt_text("Staff", "Email:")
+        movil = self._normalizar_movil(movil)
+        item = {
+            "id": uuid.uuid4().hex,
+            "nombre": nombre or "",
+            "apellido1": apellido1 or "",
+            "apellido2": apellido2 or "",
+            "movil": movil or "",
+            "email": (email or "").strip(),
+        }
+        self.staff.append(item)
+        self.guardar_staff()
+        self.incidencias_staff()
+
+    def _staff_editar(self, staff_id):
+        item = next((s for s in self.staff if s.get("id") == staff_id), None)
+        if not item:
+            return
+        self._bring_to_front()
+        nombre = self._incidencias_prompt_text("Staff", "Nombre:", item.get("nombre", ""))
+        apellido1 = self._incidencias_prompt_text("Staff", "Apellido 1:", item.get("apellido1", ""))
+        apellido2 = self._incidencias_prompt_text("Staff", "Apellido 2:", item.get("apellido2", ""))
+        movil = self._incidencias_prompt_text("Staff", "Movil:", item.get("movil", ""))
+        email = self._incidencias_prompt_text("Staff", "Email:", item.get("email", ""))
+        if nombre is None:
+            return
+        item["nombre"] = nombre or ""
+        item["apellido1"] = apellido1 or ""
+        item["apellido2"] = apellido2 or ""
+        item["movil"] = self._normalizar_movil(movil)
+        item["email"] = (email or "").strip()
+        self.guardar_staff()
+        self.incidencias_staff()
+
+    def _staff_eliminar(self, staff_id):
+        if not messagebox.askyesno("Staff", "Eliminar este staff?", parent=self):
+            return
+        self.staff = [s for s in self.staff if s.get("id") != staff_id]
+        self.guardar_staff()
+        self.incidencias_staff()
+
+    def _staff_open_chat(self, movil):
+        movil = self._normalizar_movil(movil)
+        if not movil:
+            messagebox.showwarning("Chat", "El trabajador no tiene movil.", parent=self)
+            return
+        webbrowser.open(f"https://wa.me/{movil}")
+
     def incidencias_crear_incidencia(self):
         self._bring_to_front()
+        creador = self._staff_select("Incidencia", "Quien crea la incidencia?")
+        if not creador:
+            return
+        self.incidencias_creador = creador
         respuesta = messagebox.askyesno("Incidencia", "Es sobre una maquina?", parent=self)
         if respuesta:
             self.incidencias_mode = ("inc_maquina",)
@@ -2311,7 +2537,7 @@ class ResamaniaApp(tk.Tk):
             w.destroy()
         if not self.incidencias_current_map:
             return
-        cols = ["fecha", "estado", "area", "maquina", "serie", "numero", "elemento", "descripcion", "reporte"]
+        cols = ["fecha", "creador", "estado", "area", "maquina", "serie", "numero", "elemento", "descripcion", "reporte"]
         container = tk.Frame(self.incidencias_panel)
         container.pack(fill="both", expand=True)
         tree = ttk.Treeview(container, columns=cols, show="headings")
@@ -2319,6 +2545,7 @@ class ResamaniaApp(tk.Tk):
             tree.heading(c, text=c.capitalize())
             tree.column(c, anchor="center")
         tree.column("fecha", width=120, stretch=True)
+        tree.column("creador", width=140, stretch=True)
         tree.column("estado", width=90, stretch=True)
         tree.column("area", width=120, stretch=True)
         tree.column("maquina", width=140, stretch=True)
@@ -2339,7 +2566,24 @@ class ResamaniaApp(tk.Tk):
         tree.tag_configure("reparado", background="#d4edda")
         self.incidencias_area_to_inc = {}
         for inc in self.incidencias_db.list_incidencias(self.incidencias_current_map):
-            inc_id, fecha, estado, elemento, descripcion, reporte_path, area, maquina, serie, numero = inc
+            (
+                inc_id,
+                fecha,
+                estado,
+                elemento,
+                descripcion,
+                reporte_path,
+                creador_nombre,
+                creador_apellido1,
+                creador_apellido2,
+                creador_movil,
+                creador_email,
+                area,
+                maquina,
+                serie,
+                numero,
+            ) = inc
+            creador = " ".join([p for p in [creador_nombre, creador_apellido1] if p]).strip()
             tag = ""
             if estado == "PENDIENTE":
                 tag = "pendiente"
@@ -2350,7 +2594,18 @@ class ResamaniaApp(tk.Tk):
             tree.insert(
                 "",
                 "end",
-                values=[fecha, estado, area or "", maquina or "", serie or "", numero or "", elemento or "", descripcion or "", ("[R]" if reporte_path else "")],
+                values=[
+                    fecha,
+                    creador,
+                    estado,
+                    area or "",
+                    maquina or "",
+                    serie or "",
+                    numero or "",
+                    elemento or "",
+                    descripcion or "",
+                    ("[R]" if reporte_path else ""),
+                ],
                 iid=str(inc_id),
                 tags=(tag,),
             )
@@ -2361,6 +2616,9 @@ class ResamaniaApp(tk.Tk):
                 "numero": numero,
                 "descripcion": descripcion,
                 "reporte": reporte_path,
+                "creador_movil": creador_movil,
+                "creador_email": creador_email,
+                "creador_nombre": creador,
             }
             if area:
                 self.incidencias_area_to_inc.setdefault(area, []).append(inc_id)
@@ -2412,6 +2670,9 @@ class ResamaniaApp(tk.Tk):
             if reporte:
                 menu.add_command(label="Ver reporte visual", command=lambda: self._incidencias_ver_reporte(reporte))
                 menu.add_command(label="Guardar reporte visual", command=lambda: self._incidencias_guardar_reporte(reporte))
+            creador_movil = self.incidencias_inc_map.get(int(item), {}).get("creador_movil", "")
+            if creador_movil:
+                menu.add_command(label="Abrir chat con trabajador", command=lambda: self._incidencias_chat_trabajador(creador_movil))
             menu.add_command(label="Copiar", command=lambda: copy_cell(event))
             menu.post(event.x_root, event.y_root)
 
@@ -2752,6 +3013,7 @@ class ResamaniaApp(tk.Tk):
                     self.incidencias_mode = None
                     return
                 reporte_path = self._incidencias_pedir_reporte_visual()
+                creador = self.incidencias_creador or {}
                 self.incidencias_db.add_incident(
                     self.incidencias_current_map,
                     area_id,
@@ -2759,6 +3021,11 @@ class ResamaniaApp(tk.Tk):
                     elemento or "",
                     descripcion or "",
                     reporte_path=reporte_path,
+                    creador_nombre=creador.get("nombre", ""),
+                    creador_apellido1=creador.get("apellido1", ""),
+                    creador_apellido2=creador.get("apellido2", ""),
+                    creador_movil=creador.get("movil", ""),
+                    creador_email=creador.get("email", ""),
                 )
                 self.incidencias_gestion_incidencias()
                 self.incidencias_mode = None
@@ -2777,6 +3044,7 @@ class ResamaniaApp(tk.Tk):
                     self.incidencias_mode = None
                     return
                 reporte_path = self._incidencias_pedir_reporte_visual()
+                creador = self.incidencias_creador or {}
                 self.incidencias_db.add_incident(
                     self.incidencias_current_map,
                     area_id,
@@ -2784,6 +3052,11 @@ class ResamaniaApp(tk.Tk):
                     elemento or "",
                     descripcion or "",
                     reporte_path=reporte_path,
+                    creador_nombre=creador.get("nombre", ""),
+                    creador_apellido1=creador.get("apellido1", ""),
+                    creador_apellido2=creador.get("apellido2", ""),
+                    creador_movil=creador.get("movil", ""),
+                    creador_email=creador.get("email", ""),
                 )
                 self.incidencias_gestion_incidencias()
                 self.incidencias_mode = None
@@ -2874,38 +3147,42 @@ class ResamaniaApp(tk.Tk):
 
     def enviar_asuntos_propios(self):
         """
-        Abre Outlook con un borrador dirigido al manager para solicitar día de asuntos propios.
+        Abre Outlook con un borrador dirigido al manager para solicitar dia de asuntos propios.
         """
+        solicitante = self._staff_select("Asuntos propios", "Quien solicita el dia?")
+        if not solicitante:
+            return
         destinatario = "manager.sevilla-manueldevillalobos@fitnesspark.es"
-        asunto = "Petición de Día de Asuntos Propios"
-        cuerpo = (
-            "En Sevilla, a __ / __ / 20__\n"
-            "Yo, _______________________, con DNI, miembro del equipo\n"
-            "del club Fitness Park Sevilla - Villalobos, presento la siguiente solicitud:\n\n"
-            "Objeto de la petición\n"
-            "Solicito autorización para disfrutar de un día de asuntos propios, conforme a las condiciones establecidas en mi\n"
-            "contrato y en el protocolo interno del club.\n"
-            "Fecha solicitada: ____ / ____ / 20___\n"
-            "Turno habitual en dicha fecha: [ ] Mañana [ ] Tarde [ ] Noche\n"
-            "Declaración del trabajador/a\n"
-            "Declaro que:\n"
-            "- Esta solicitud se realiza con la antelación mínima exigida por la organización.\n"
-            "- Entiendo que los días de asuntos propios deben disfrutarse en días laborables y siempre respetando la\n"
-            "cobertura del servicio.\n"
-            "- Acepto que la concesión del día queda sujeta a aprobación por parte de la Dirección del club,\n"
-            "garantizando que no se vea afectada la operativa ni el equilibrio de turnos del equipo."
-        )
+        asunto = "Peticion de Dia de Asuntos Propios"
+        nombre = self._staff_display_name(solicitante)
+        apellido2 = str(solicitante.get("apellido2", "")).strip()
+        nombre_completo = " ".join([p for p in [nombre, apellido2] if p]).strip()
+        cuerpo = f"""En Sevilla, a __ / __ / 20__
+Yo, {nombre_completo}, con DNI, miembro del equipo
+ del club Fitness Park Sevilla - Villalobos, presento la siguiente solicitud:
+
+Objeto de la peticion
+Solicito autorizacion para disfrutar de un dia de asuntos propios, conforme a las condiciones establecidas en mi
+contrato y en el protocolo interno del club.
+Fecha solicitada: ____ / ____ / 20___
+Turno habitual en dicha fecha: [ ] Manana [ ] Tarde [ ] Noche
+Declaracion del trabajador/a
+Declaro que:
+- Esta solicitud se realiza con la antelacion minima exigida por la organizacion.
+- Entiendo que los dias de asuntos propios deben disfrutarse en dias laborables y siempre respetando la
+cobertura del servicio.
+- Acepto que la concesion del dia queda sujeta a aprobacion por parte de la Direccion del club,
+ garantizando que no se vea afectada la operativa ni el equilibrio de turnos del equipo."""
 
         try:
             import win32com.client  # type: ignore
         except ImportError:
             self.clipboard_clear()
             self.clipboard_append(cuerpo)
-            messagebox.showwarning(
-                "Outlook no disponible",
-                f"No se pudo importar win32com.client.\n"
-                f"Cuerpo copiado al portapapeles. Envía un correo a {destinatario} con asunto:\n{asunto}"
-            )
+            warn = f"""No se pudo importar win32com.client.
+Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
+{asunto}"""
+            messagebox.showwarning("Outlook no disponible", warn)
             return
 
         def try_outlook():
@@ -2927,77 +3204,14 @@ class ResamaniaApp(tk.Tk):
 
             mail = outlook.CreateItem(0)
             mail.To = destinatario
+            if solicitante.get("email"):
+                mail.CC = solicitante.get("email")
             mail.Subject = asunto
             mail.Body = cuerpo
             mail.Display()
             messagebox.showinfo(
                 "Borrador creado",
-                f"Outlook se abrió con el correo dirigido a {destinatario}."
-            )
-        except Exception as e:
-            self.clipboard_clear()
-            self.clipboard_append(cuerpo)
-            messagebox.showerror(
-                "Error con Outlook",
-                f"No se pudo crear el correo en Outlook.\n"
-                f"Cuerpo copiado al portapapeles para pegarlo manualmente.\n\nDetalle: {e}"
-            )
-
-    def enviar_cambio_turno(self):
-        """
-        Abre Outlook con un borrador para solicitud de cambio de turno (sin PIN).
-        """
-        destinatario = "manager.sevilla-manueldevillalobos@fitnesspark.es"
-        asunto = "Solicitud Cambio de turno"
-        cuerpo = (
-            "PETICIÓN VOLUNTARIA DE LOS SOLICITANTES QUE EN TODO MOMENTO Y BAJO SU RESPONSABILIDAD "
-            "PROPORCIONARÁ LA COBERTURA NECESARIA PARA QUE LAS NECESIDADES DEL CLUB ESTÉN CUBIERTAS. "
-            "REQUIERE DE APROBACIÓN POR PARTE DEL DIRECTOR DEL CLUB.\n\n"
-            "STAFF 1 QUE SOLICITA EL CAMBIO*\n"
-            "NOMBRE Y APELLIDOS\n\n"
-            "STAFF 2 QUE ACEPTA EL CAMBIO*\n"
-            "NOMBRE Y APELLIDOS\n\n\n"
-            "DESCRIBIR A CONTINUACIÓN CAMBIO ESPECIFICANDO FECHAS Y TURNOS. "
-            "RECUERDA QUE DEBEN SER CAMBIOS CERRADOS, SIN QUE QUEDE NADA EN EL AIRE:"
-        )
-
-        try:
-            import win32com.client  # type: ignore
-        except ImportError:
-            self.clipboard_clear()
-            self.clipboard_append(cuerpo)
-            messagebox.showwarning(
-                "Outlook no disponible",
-                f"No se pudo importar win32com.client.\n"
-                f"Cuerpo copiado al portapapeles. Envía un correo a {destinatario} con asunto:\n{asunto}"
-            )
-            return
-
-        def try_outlook():
-            outlook_app = win32com.client.Dispatch("Outlook.Application")
-            try:
-                ns = outlook_app.GetNamespace("MAPI")
-                ns.Logon("", "", False, False)
-            except Exception:
-                pass
-            return outlook_app
-
-        try:
-            try:
-                outlook = try_outlook()
-            except Exception:
-                os.startfile("outlook.exe")
-                time.sleep(3)
-                outlook = try_outlook()
-
-            mail = outlook.CreateItem(0)
-            mail.To = destinatario
-            mail.Subject = asunto
-            mail.Body = cuerpo
-            mail.Display()
-            messagebox.showinfo(
-                "Borrador creado",
-                f"Outlook se abrió con el correo dirigido a {destinatario}."
+                f"Outlook se abrio con el correo dirigido a {destinatario}."
             )
         except Exception as e:
             self.clipboard_clear()
@@ -3010,61 +3224,60 @@ class ResamaniaApp(tk.Tk):
 
     def enviar_felicitacion(self):
         """
-        Pide PIN y abre un borrador de Outlook con los emails de Cumpleaños en BCC.
+        Abre Outlook con un borrador para felicitar cumpleanos (1 vez por año).
         """
-        df = self.dataframes.get("Cumpleaños")
-        if df is None or df.empty:
-            messagebox.showwarning("Sin datos", "No hay datos cargados en la pestaña Cumpleaños.")
-            return
+        try:
+            df = obtener_cumpleanos_hoy()
+        except Exception:
+            df = None
 
-        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
-        if pin is None:
-            return  # cancelado
-        if pin.strip() != get_security_code():
-            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
+        if df is None or df.empty:
+            messagebox.showinfo("Cumpleanos", "No hay cumpleanos para hoy.")
             return
 
         def normalize(text):
             t = unicodedata.normalize("NFD", str(text or "")).upper().strip()
             return "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
 
-        colmap = {normalize(col): col for col in df.columns}
+        colmap = {normalize(c): c for c in df.columns}
         col_email = colmap.get("CORREO ELECTRONICO") or colmap.get("EMAIL") or colmap.get("CORREO")
 
         if not col_email:
-            messagebox.showerror("Columna faltante", "No se encontró la columna de correo electrónico en Cumpleaños.")
+            messagebox.showwarning("Cumpleanos", "No se encontro columna de email.")
             return
 
-        emails = df[col_email].dropna().astype(str).str.strip()
-        emails = [e for e in emails if e]
-        emails = list(dict.fromkeys(emails))  # quitar duplicados manteniendo orden
+        current_year = datetime.now().year
+        emails = []
+        for _, row in df.iterrows():
+            email = str(row.get(col_email, "")).strip()
+            if not email:
+                continue
+            sent_year = self.felicitaciones_enviadas.get(email)
+            if sent_year == current_year:
+                continue
+            emails.append(email)
 
-        # Filtra ya enviados este año
-        year = str(datetime.now().year)
-        enviados = set(self.felicitaciones_enviadas.get(year, []))
-        emails_pendientes = [e for e in emails if e.lower() not in enviados]
-
-        if not emails_pendientes:
-            messagebox.showwarning("Sin correos", "Todos los cumpleaños de hoy ya fueron felicitados este año.")
+        if not emails:
+            messagebox.showinfo("Cumpleanos", "No hay cumpleanos pendientes de enviar.")
             return
+
+        asunto = "Feliz cumpleanos"
+        cuerpo_html = (
+            '<div style="font-family:Arial,sans-serif;font-size:14px;">'
+            "<p>Feliz cumpleanos.</p>"
+            '<img src="cid:{{CID}}" alt="Feliz cumpleanos" style="max-width:100%;">'
+            "</div>"
+        )
+        imagen_path = get_logo_path("feliz_cumpleanos.png")
 
         try:
-            import win32com.client  # tipo: ignore
+            import win32com.client  # type: ignore
         except ImportError:
-            # Fallback: copiar correos al portapapeles para pegarlos en BCC manualmente.
-            emails_joined = ";".join(emails_pendientes)
-            self.clipboard_clear()
-            self.clipboard_append(emails_joined)
-            messagebox.showwarning(
-                "Outlook no disponible",
-                "No se pudo importar win32com.client. Se copiaron los correos al portapapeles para pegarlos en BCC.\n"
-                "Instala pywin32 si quieres que Outlook se abra automáticamente."
-            )
+            messagebox.showwarning("Outlook no disponible", "No se pudo importar win32com.client.")
             return
 
         def try_outlook():
             outlook_app = win32com.client.Dispatch("Outlook.Application")
-            # Garantiza sesión; si Outlook no está abierto, fuerza logon.
             try:
                 ns = outlook_app.GetNamespace("MAPI")
                 ns.Logon("", "", False, False)
@@ -3076,56 +3289,123 @@ class ResamaniaApp(tk.Tk):
             try:
                 outlook = try_outlook()
             except Exception:
-                # Intentar arrancar Outlook y reintentar
-                try:
-                    os.startfile("outlook.exe")
-                    time.sleep(3)
-                    outlook = try_outlook()
-                except Exception:
-                    raise
+                os.startfile("outlook.exe")
+                time.sleep(3)
+                outlook = try_outlook()
 
             mail = outlook.CreateItem(0)
-            mail.BCC = ";".join(emails_pendientes)
-            mail.Subject = "¡Felicidades!"
-
-            # Inserta imagen inline si existe en disco.
-            imagen_nombre = "feliz_cumpleanos.png"
-            imagen_path = get_logo_path(imagen_nombre)
+            mail.BCC = ";".join(sorted(set(emails)))
+            mail.Subject = asunto
             cid = uuid.uuid4().hex
-
             if os.path.exists(imagen_path):
-                attachment = mail.Attachments.Add(imagen_path, 1, 0)  # 1 = olByValue
+                attachment = mail.Attachments.Add(imagen_path, 1, 0)
                 attachment.PropertyAccessor.SetProperty(
                     "http://schemas.microsoft.com/mapi/proptag/0x3712001E", cid
                 )
-                mail.HTMLBody = (
-                    f'<div style="font-family:Arial,sans-serif;font-size:14px;">'
-                    f'<img src="cid:{cid}" alt="Feliz cumpleaños" style="max-width:100%;">'
-                    f"</div>"
-                )
+                mail.HTMLBody = cuerpo_html.replace("{{CID}}", cid)
             else:
-                mail.HTMLBody = (
-                    '<div style="font-family:Arial,sans-serif;font-size:14px;">'
-                    "<p>¡Feliz cumpleaños!</p>"
-                    "</div>"
-                )
+                mail.HTMLBody = cuerpo_html.replace('<img src="cid:{{CID}}" alt="Feliz cumpleanos" style="max-width:100%;">', "")
 
-            mail.Display()  # abre borrador para revisión
-            if not messagebox.askyesno("Confirmación", "Ha enviado la felicitacion?"):
-                return
-            # Marca como enviados para este año
-            enviados.update([e.lower() for e in emails_pendientes])
-            self.felicitaciones_enviadas[year] = sorted(enviados)
-            self.guardar_felicitaciones()
-            messagebox.showinfo("Registrado", "Felicitaciones registradas. No se reenviarán hasta el próximo año.")
+            mail.Display()
         except Exception as e:
-            emails_joined = ";".join(emails_pendientes)
+            messagebox.showerror("Outlook", f"No se pudo crear el correo: {e}", parent=self)
+            return
+
+        if not messagebox.askyesno("Confirmacion", "Ha enviado la felicitacion?", parent=self):
+            return
+
+        for email in set(emails):
+            self.felicitaciones_enviadas[email] = current_year
+        self.guardar_felicitaciones()
+
+    def enviar_cambio_turno(self):
+        """
+        Abre Outlook con un borrador para solicitud de cambio de turno.
+        """
+        solicitante = self._staff_select("Cambio de turno", "Quien solicita el cambio?")
+        if not solicitante:
+            return
+        aceptante = self._staff_select("Cambio de turno", "Quien acepta el cambio?")
+        if not aceptante:
+            return
+
+        destinatario = "manager.sevilla-manueldevillalobos@fitnesspark.es"
+        asunto = "Solicitud Cambio de turno"
+
+        nombre1 = self._staff_display_name(solicitante)
+        apellido1b = str(solicitante.get("apellido2", "")).strip()
+        nombre1c = " ".join([p for p in [nombre1, apellido1b] if p]).strip()
+
+        nombre2 = self._staff_display_name(aceptante)
+        apellido2b = str(aceptante.get("apellido2", "")).strip()
+        nombre2c = " ".join([p for p in [nombre2, apellido2b] if p]).strip()
+
+        cuerpo = f"""PETICION VOLUNTARIA DE LOS SOLICITANTES QUE EN TODO MOMENTO Y BAJO SU RESPONSABILIDAD PROPORCIONARA LA COBERTURA NECESARIA PARA QUE LAS NECESIDADES DEL CLUB ESTEN CUBIERTAS. REQUIERE DE APROBACION POR PARTE DEL DIRECTOR DEL CLUB.
+
+STAFF 1 QUE SOLICITA EL CAMBIO*
+{nombre1c}
+
+STAFF 2 QUE ACEPTA EL CAMBIO*
+{nombre2c}
+
+DESCRIBIR A CONTINUACION CAMBIO ESPECIFICANDO FECHAS Y TURNOS. RECUERDA QUE DEBEN SER CAMBIOS CERRADOS, SIN QUE QUEDE NADA EN EL AIRE:"""
+
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
             self.clipboard_clear()
-            self.clipboard_append(emails_joined)
+            self.clipboard_append(cuerpo)
+            warn = f"""No se pudo importar win32com.client.
+Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
+{asunto}"""
+            messagebox.showwarning("Outlook no disponible", warn)
+            return
+
+        def try_outlook():
+            outlook_app = win32com.client.Dispatch("Outlook.Application")
+            try:
+                ns = outlook_app.GetNamespace("MAPI")
+                ns.Logon("", "", False, False)
+            except Exception:
+                pass
+            return outlook_app
+
+        try:
+            try:
+                outlook = try_outlook()
+            except Exception:
+                os.startfile("outlook.exe")
+                time.sleep(3)
+                outlook = try_outlook()
+
+            mail = outlook.CreateItem(0)
+            mail.To = destinatario
+            cc_emails = []
+            for persona in (solicitante, aceptante):
+                email = str(persona.get("email", "")).strip()
+                if email and email not in cc_emails:
+                    cc_emails.append(email)
+            if cc_emails:
+                mail.CC = ";".join(cc_emails)
+            mail.Subject = asunto
+            mail.Body = cuerpo
+            mail.Display()
+            messagebox.showinfo(
+                "Borrador creado",
+                f"Outlook se abrio con el correo dirigido a {destinatario}."
+            )
+        except Exception as e:
+            self.clipboard_clear()
+            self.clipboard_append(cuerpo)
             messagebox.showerror(
                 "Error con Outlook",
-                f"No se pudo crear el correo en Outlook.\nSe copiaron los correos al portapapeles para pegarlos en BCC.\n\nDetalle: {e}"
+                f"No se pudo crear el correo en Outlook.\n"
+                f"Cuerpo copiado al portapapeles para pegarlo manualmente.\n\nDetalle: {e}"
             )
+
+    def abrir_staff(self):
+        self.notebook.select(self.tabs.get("Incidencias Club"))
+        self.incidencias_staff()
 
     def extraer_accesos(self):
         """
@@ -3247,7 +3527,7 @@ class ResamaniaApp(tk.Tk):
         except Exception as e:
             messagebox.showerror(
                 "Error con Outlook",
-                f"No se pudo crear el correo en Outlook. Adjunta manualmente el archivo:\n{tmp_path}\n\nDetalle: {e}"
+                f"No se pudo crear el correo en Outlook.\n\nDetalle: {e}"
             )
 
 

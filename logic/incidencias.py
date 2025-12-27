@@ -61,6 +61,11 @@ class IncidenciasDB:
                     area_id INTEGER,
                     maquina_id INTEGER,
                     fecha TEXT,
+                    creador_nombre TEXT,
+                    creador_apellido1 TEXT,
+                    creador_apellido2 TEXT,
+                    creador_movil TEXT,
+                    creador_email TEXT,
                     elemento TEXT,
                     descripcion TEXT,
                     estado TEXT,
@@ -75,6 +80,16 @@ class IncidenciasDB:
             cols = [row[1] for row in cur.fetchall()]
             if "reporte_path" not in cols:
                 cur.execute("ALTER TABLE inc_incidencias ADD COLUMN reporte_path TEXT")
+            if "creador_nombre" not in cols:
+                cur.execute("ALTER TABLE inc_incidencias ADD COLUMN creador_nombre TEXT")
+            if "creador_apellido1" not in cols:
+                cur.execute("ALTER TABLE inc_incidencias ADD COLUMN creador_apellido1 TEXT")
+            if "creador_apellido2" not in cols:
+                cur.execute("ALTER TABLE inc_incidencias ADD COLUMN creador_apellido2 TEXT")
+            if "creador_movil" not in cols:
+                cur.execute("ALTER TABLE inc_incidencias ADD COLUMN creador_movil TEXT")
+            if "creador_email" not in cols:
+                cur.execute("ALTER TABLE inc_incidencias ADD COLUMN creador_email TEXT")
             conn.commit()
 
     def add_map(self, nombre, ruta, ancho, alto):
@@ -183,19 +198,42 @@ class IncidenciasDB:
             cur.execute("DELETE FROM inc_maquinas WHERE id=?", (machine_id,))
             conn.commit()
 
-    def add_incident(self, mapa_id, area_id, maquina_id, elemento, descripcion, estado="PENDIENTE", reporte_path=""):
+    def add_incident(
+        self,
+        mapa_id,
+        area_id,
+        maquina_id,
+        elemento,
+        descripcion,
+        estado="PENDIENTE",
+        reporte_path="",
+        creador_nombre="",
+        creador_apellido1="",
+        creador_apellido2="",
+        creador_movil="",
+        creador_email="",
+    ):
         with self._connect() as conn:
             cur = conn.cursor()
             cur.execute(
                 """
-                INSERT INTO inc_incidencias (mapa_id, area_id, maquina_id, fecha, elemento, descripcion, estado, reporte_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO inc_incidencias (
+                    mapa_id, area_id, maquina_id, fecha,
+                    creador_nombre, creador_apellido1, creador_apellido2, creador_movil, creador_email,
+                    elemento, descripcion, estado, reporte_path
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     mapa_id,
                     area_id,
                     maquina_id,
                     datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    creador_nombre,
+                    creador_apellido1,
+                    creador_apellido2,
+                    creador_movil,
+                    creador_email,
                     elemento,
                     descripcion,
                     estado,
@@ -210,6 +248,7 @@ class IncidenciasDB:
             cur.execute(
                 """
                 SELECT i.id, i.fecha, i.estado, i.elemento, i.descripcion, i.reporte_path,
+                       i.creador_nombre, i.creador_apellido1, i.creador_apellido2, i.creador_movil, i.creador_email,
                        a.nombre, m.nombre, m.serie, m.numero_asignado
                 FROM inc_incidencias i
                 LEFT JOIN inc_areas a ON a.id = i.area_id
