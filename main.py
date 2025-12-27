@@ -1414,7 +1414,7 @@ class ResamaniaApp(tk.Tk):
             messagebox.showwarning("Sin seleccion", "Selecciona un prestamo.")
             return
         datos = self.tree_prestamos.item(sel[0])["values"]
-        movil = str(datos[4]).replace(" ", "")
+        movil = self._normalizar_movil(str(datos[4]))
         if not movil:
             messagebox.showwarning("Sin movil", "El cliente no tiene movil registrado.")
             return
@@ -1427,7 +1427,7 @@ class ResamaniaApp(tk.Tk):
             "En caso de que vuelva a ocurrir, no podremos ofrecer este servicio. Gracias por colaborar."
         )
         try:
-            url = f"https://wa.me/{movil}utext={urllib.parse.quote(texto)}"
+            url = f"https://wa.me/{movil}?text={urllib.parse.quote(texto)}"
             webbrowser.open(url)
         except Exception as e:
             messagebox.showerror("WhatsApp", f"No se pudo abrir el enlace: {e}")
@@ -1487,6 +1487,13 @@ class ResamaniaApp(tk.Tk):
             if filtro != "TODAS" and estado != filtro:
                 continue
             reporte = "R" if inc.get("reporte_path") else ""
+            tag = ""
+            if estado == "PENDIENTE":
+                tag = "pendiente"
+            elif estado == "VISTO":
+                tag = "visto"
+            elif estado == "RESUELTO":
+                tag = "resuelto"
             values = [
                 inc.get("codigo", ""),
                 inc.get("nombre", ""),
@@ -1499,7 +1506,7 @@ class ResamaniaApp(tk.Tk):
                 reporte,
                 inc.get("prestado_por", ""),
             ]
-            tree.insert("", "end", iid=inc.get("id"), values=values)
+            tree.insert("", "end", iid=inc.get("id"), values=values, tags=(tag,))
 
     def buscar_cliente_incidencia_socio(self):
         codigo = self.incidencia_socios_codigo.get().strip()
@@ -1644,6 +1651,41 @@ class ResamaniaApp(tk.Tk):
         self.guardar_incidencias_socios()
         self.refrescar_incidencias_socios_tree()
 
+    def _socios_abrir_chat(self, inc_id):
+        inc = next((i for i in self.incidencias_socios if i.get("id") == inc_id), None)
+        if not inc:
+            return
+        movil = self._normalizar_movil(inc.get("movil", ""))
+        if not movil:
+            messagebox.showwarning("Chat", "El cliente no tiene movil registrado.")
+            return
+        webbrowser.open(f"https://wa.me/{movil}")
+
+    def _socios_enviar_email(self, inc_id):
+        inc = next((i for i in self.incidencias_socios if i.get("id") == inc_id), None)
+        if not inc:
+            return
+        email = str(inc.get("email", "")).strip()
+        if not email:
+            messagebox.showwarning("Email", "El cliente no tiene email registrado.")
+            return
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            self.clipboard_clear()
+            self.clipboard_append(email)
+            messagebox.showwarning("Outlook no disponible", "Email copiado al portapapeles.")
+            return
+        try:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            mail = outlook.CreateItem(0)
+            mail.To = email
+            mail.Subject = ""
+            mail.Body = ""
+            mail.Display()
+        except Exception as e:
+            messagebox.showerror("Email", f"No se pudo abrir Outlook.\nDetalle: {e}")
+
     def _socios_eliminar_incidencia(self, inc_id):
         if not messagebox.askyesno("Eliminar", "Eliminar esta incidencia?", parent=self):
             return
@@ -1686,7 +1728,14 @@ class ResamaniaApp(tk.Tk):
         for c in cols:
             heading = "Registrado por" if c == "prestado_por" else c.capitalize()
             tree.heading(c, text=heading)
-            tree.column(c, anchor="center")
+            width = 120
+            if c in ("email",):
+                width = 200
+            elif c in ("incidencia",):
+                width = 260
+            elif c in ("prestado_por",):
+                width = 160
+            tree.column(c, anchor="center", width=width, stretch=True)
         tree.grid(row=0, column=0, sticky="nsew")
         vscroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
         vscroll.grid(row=0, column=1, sticky="ns")
@@ -1694,6 +1743,9 @@ class ResamaniaApp(tk.Tk):
         hscroll.grid(row=1, column=0, sticky="ew")
         tree.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
         tree.bind("<Control-c>", lambda e: self.copiar_celda(e, tree))
+        tree.tag_configure("pendiente", background="#ffe6cc")
+        tree.tag_configure("visto", background="#fff3cd")
+        tree.tag_configure("resuelto", background="#d4edda")
 
         def on_right_click(event):
             row = tree.identify_row(event.y)
@@ -1706,10 +1758,58 @@ class ResamaniaApp(tk.Tk):
             menu.add_command(label="Ver reporte visual", command=lambda: self._socios_ver_reporte(row))
             menu.add_command(label="Modificar reporte visual", command=lambda: self._socios_modificar_reporte(row))
             menu.add_command(label="Eliminar incidencia", command=lambda: self._socios_eliminar_incidencia(row))
+            menu.add_separator()
+            menu.add_command(label="Abrir chat", command=lambda: self._socios_abrir_chat(row))
+            menu.add_command(label="Enviar email", command=lambda: self._socios_enviar_email(row))
             menu.add_command(label="Copiar", command=lambda: self.copiar_celda(event, tree))
             menu.post(event.x_root, event.y_root)
 
+        tooltip = {"win": None}
+
+        def show_tooltip(texto, x, y):
+            if not texto:
+                return
+            if tooltip["win"] is None:
+                tip = tk.Toplevel(self)
+                tip.wm_overrideredirect(True)
+                label = tk.Label(
+                    tip,
+                    text=texto,
+                    justify="left",
+                    background="#ffffe0",
+                    relief="solid",
+                    borderwidth=1,
+                    wraplength=360,
+                )
+                label.pack(ipadx=4, ipady=2)
+                tooltip["win"] = tip
+            tooltip["win"].wm_geometry(f"+{x}+{y}")
+
+        def hide_tooltip():
+            if tooltip["win"] is not None:
+                tooltip["win"].destroy()
+                tooltip["win"] = None
+
+        def on_hover(event):
+            item = tree.identify_row(event.y)
+            if not item:
+                hide_tooltip()
+                return
+            col = tree.identify_column(event.x)
+            col_index = int(col[1:]) - 1 if col else -1
+            if col_index == cols.index("incidencia"):
+                values = tree.item(item, "values")
+                texto = values[col_index] if col_index < len(values) else ""
+                if texto:
+                    show_tooltip(str(texto), event.x_root + 12, event.y_root + 12)
+                else:
+                    hide_tooltip()
+            else:
+                hide_tooltip()
+
         tree.bind("<Button-3>", on_right_click)
+        tree.bind("<Motion>", on_hover)
+        tree.bind("<Leave>", lambda _e: hide_tooltip())
         self.tree_incidencias_socios = tree
         tab.tree = tree
         self.refrescar_incidencias_socios_tree()
