@@ -93,6 +93,9 @@ class ResamaniaApp(tk.Tk):
         # Staff
         self.staff_file = os.path.join("data", "staff.json")
         self.staff = []
+        self.staff_menu = None
+        self.staff_tree = None
+        self.staff_filter_var = None
 
         # Incidencias Club
         self.incidencias_db = IncidenciasDB(os.path.join("data", "incidencias.db"))
@@ -206,12 +209,11 @@ class ResamaniaApp(tk.Tk):
 
         botones_frame = tk.Frame(self)
         botones_frame.pack(pady=5)
-        tk.Button(botones_frame, text="STAFF", command=self.abrir_staff, bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=10)
+        self.btn_staff = tk.Button(botones_frame, text="STAFF", command=self.abrir_staff, bg="#9e9e9e", fg="black")
+        self.btn_staff.pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Actualizar datos", command=self.load_data).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="DÍA ASUNTOS PROPIOS", command=self.enviar_asuntos_propios, fg="#0066cc").pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="SOLICITUD DE CAMBIO DE TURNO", command=self.enviar_cambio_turno, fg="#0066cc").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="ENVIAR FELICITACIÓN", command=self.enviar_felicitacion, fg="#b30000").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="ENVÍO MARTES AVANZA FIT", command=self.enviar_avanza_fit, fg="#b30000").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="EXTRAER ACCESOS", command=self.extraer_accesos, fg="#0066cc").pack(side=tk.LEFT, padx=10)
@@ -219,6 +221,10 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="IR A IMPAGOS", command=self.ir_a_impagos, bg="#ff6b6b", fg="black").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=lambda: self.notebook.select(self.tabs.get("Incidencias Club")), bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="INCIDENCIAS SOCIOS", command=lambda: self.notebook.select(self.tabs.get("Incidencias Socios")), bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=10)
+        self.staff_menu = tk.Menu(self, tearoff=0)
+        self.staff_menu.add_command(label="GESTIONAR STAFF", command=self.abrir_gestion_staff)
+        self.staff_menu.add_command(label="DIA DE ASUNTOS PROPIOS", command=self.enviar_asuntos_propios)
+        self.staff_menu.add_command(label="SOLICITUD DE CAMBIO DE TURNO", command=self.enviar_cambio_turno)
 
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("Arial", 9, "bold"), padding=[24, 6], anchor="w")
@@ -243,6 +249,7 @@ class ResamaniaApp(tk.Tk):
             "Impagos": "#ff6b6b",
             "Incidencias Club": "#424242",
             "Incidencias Socios": "#9e9e9e",
+            "Staff": "#9e9e9e",
         }
         self.tab_icons = {}
 
@@ -254,13 +261,14 @@ class ResamaniaApp(tk.Tk):
             "Morosos Accediendo",
             "Socios Ultimate",
             "Socios Yanga",
+            "Staff",
         }
         for tab_name in [
             "Wizville", "Accesos", "Servicios",
             "Accesos Dobles", "Accesos Descuadrados",
             "Salidas PMR No Autorizadas", "Morosos Accediendo",
             "Socios Ultimate", "Socios Yanga",
-            "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios"
+            "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff"
         ]:
             tab = ttk.Frame(self.notebook)
             color = tab_colors.get(tab_name, "#cccccc")
@@ -277,6 +285,8 @@ class ResamaniaApp(tk.Tk):
                 self.create_prestamos_tab(tab)
             elif tab_name == "Incidencias Socios":
                 self.create_incidencias_socios_tab(tab)
+            elif tab_name == "Staff":
+                self.create_staff_tab(tab)
             elif tab_name == "Impagos":
                 self.create_impagos_tab(tab)
             elif tab_name == "Incidencias Club":
@@ -766,20 +776,43 @@ class ResamaniaApp(tk.Tk):
             self.pmr_mostrar_autorizados()
             self._pmr_refrescar_listado()
 
+    def _staff_get_value(self, item, *keys):
+        for key in keys:
+            if key in item and item.get(key) is not None:
+                return item.get(key)
+        return ""
+
+    def _staff_normalize_item(self, raw_item):
+        item = dict(raw_item) if isinstance(raw_item, dict) else {}
+        normalized = {
+            "id": item.get("id") or uuid.uuid4().hex,
+            "nombre": self._staff_get_value(item, "nombre", "Nombre", "NOMBRE"),
+            "apellido1": self._staff_get_value(item, "apellido1", "Apellido1", "APELLIDO1", "Apellido 1", "ap1"),
+            "apellido2": self._staff_get_value(item, "apellido2", "Apellido2", "APELLIDO2", "Apellido 2", "ap2"),
+            "movil": self._staff_get_value(item, "movil", "Movil", "Móvil", "telefono", "Teléfono", "Telefono", "MOVIL"),
+            "email": self._staff_get_value(item, "email", "Email", "correo", "Correo", "correo electronico", "Correo electrónico"),
+        }
+        normalized["movil"] = self._normalizar_movil(normalized["movil"])
+        return normalized
+
     def cargar_staff(self):
-        if os.path.exists(self.staff_file):
-            try:
-                with open(self.staff_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, list):
-                    self.staff = data
-                    for item in self.staff:
-                        if "id" not in item:
-                            item["id"] = uuid.uuid4().hex
-                        if "movil" in item:
-                            item["movil"] = self._normalizar_movil(item.get("movil", ""))
-            except Exception:
-                self.staff = []
+        self.staff = []
+        if not os.path.exists(self.staff_file):
+            return
+        try:
+            with open(self.staff_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                if isinstance(data.get("staff"), list):
+                    items = data.get("staff", [])
+                elif all(isinstance(v, dict) for v in data.values()):
+                    items = list(data.values())
+            self.staff = [self._staff_normalize_item(i) for i in items if isinstance(i, dict)]
+        except Exception:
+            self.staff = []
 
     def guardar_staff(self):
         os.makedirs(os.path.dirname(self.staff_file), exist_ok=True)
@@ -2894,18 +2927,11 @@ class ResamaniaApp(tk.Tk):
         tree.bind("<Button-3>", lambda e: (setattr(tree, 'event_context', e), menu.post(e.x_root, e.y_root)))
         self.incidencias_machines_tree = tree
 
-    def incidencias_staff(self):
-        if not self._incidencias_pin_ok():
-            return
-        self.incidencias_panel_mode = "staff"
-        self.incidencias_info_filter_area = None
-        self._incidencias_set_area_header(None)
-        self._incidencias_apply_map_filter(None)
-        for w in self.incidencias_panel.winfo_children():
-            w.destroy()
-        container = tk.Frame(self.incidencias_panel)
-        container.pack(fill="both", expand=True)
-        header = tk.Frame(container)
+    def create_staff_tab(self, tab):
+        frm = tk.Frame(tab)
+        frm.pack(fill="both", expand=True, padx=10, pady=10)
+
+        header = tk.Frame(frm)
         header.pack(fill="x", pady=4)
         tk.Button(header, text="Agregar Staff", command=self._staff_agregar).pack(side="left", padx=5)
         tk.Label(header, text="Buscar:").pack(side="left", padx=(10, 4))
@@ -2914,7 +2940,7 @@ class ResamaniaApp(tk.Tk):
         filtro_entry.pack(side="left", padx=5)
 
         cols = ["nombre", "apellido1", "apellido2", "movil", "email"]
-        tree = ttk.Treeview(container, columns=cols, show="headings")
+        tree = ttk.Treeview(frm, columns=cols, show="headings")
         for c in cols:
             tree.heading(c, text=c.capitalize())
             tree.column(c, anchor="center")
@@ -2924,25 +2950,6 @@ class ResamaniaApp(tk.Tk):
         tree.column("movil", width=140, stretch=True)
         tree.column("email", width=220, stretch=True)
         tree.pack(fill="both", expand=True)
-
-        def populate(filter_text=""):
-            tree.delete(*tree.get_children())
-            needle = filter_text.strip().lower()
-            for item in self.staff:
-                values = [
-                    item.get("nombre", ""),
-                    item.get("apellido1", ""),
-                    item.get("apellido2", ""),
-                    item.get("movil", ""),
-                    item.get("email", ""),
-                ]
-                haystack = " ".join(str(v) for v in values).lower()
-                if needle and needle not in haystack:
-                    continue
-                tree.insert("", "end", iid=item.get("id"), values=values)
-
-        populate()
-        filtro_entry.bind("<KeyRelease>", lambda _e: populate(filtro_var.get()))
 
         def copy_cell(event):
             row = tree.identify_row(event.y)
@@ -2973,8 +2980,11 @@ class ResamaniaApp(tk.Tk):
             menu.post(event.x_root, event.y_root)
 
         tree.bind("<Button-3>", on_right_click)
-        self.incidencias_staff_tree = tree
+        filtro_entry.bind("<KeyRelease>", lambda _e: self._staff_populate_tree(tree, filtro_var.get()))
         filtro_entry.focus_set()
+        self.staff_tree = tree
+        self.staff_filter_var = filtro_var
+        self._staff_populate_tree(tree, "")
 
     def _staff_agregar(self):
         self._bring_to_front()
@@ -2996,7 +3006,7 @@ class ResamaniaApp(tk.Tk):
         }
         self.staff.append(item)
         self.guardar_staff()
-        self.incidencias_staff()
+        self._staff_refresh_views()
 
     def _staff_editar(self, staff_id):
         item = next((s for s in self.staff if s.get("id") == staff_id), None)
@@ -3016,14 +3026,14 @@ class ResamaniaApp(tk.Tk):
         item["movil"] = self._normalizar_movil(movil)
         item["email"] = (email or "").strip()
         self.guardar_staff()
-        self.incidencias_staff()
+        self._staff_refresh_views()
 
     def _staff_eliminar(self, staff_id):
         if not messagebox.askyesno("Staff", "Eliminar este staff?", parent=self):
             return
         self.staff = [s for s in self.staff if s.get("id") != staff_id]
         self.guardar_staff()
-        self.incidencias_staff()
+        self._staff_refresh_views()
 
     def _staff_open_chat(self, movil):
         movil = self._normalizar_movil(movil)
@@ -3031,6 +3041,36 @@ class ResamaniaApp(tk.Tk):
             messagebox.showwarning("Chat", "El trabajador no tiene movil.", parent=self)
             return
         webbrowser.open(f"https://wa.me/{movil}")
+
+    def abrir_gestion_staff(self):
+        if not self._incidencias_pin_ok():
+            return
+        self.cargar_staff()
+        tab = self.tabs.get("Staff")
+        if tab:
+            self.notebook.add(tab, text="Staff", image=self.tab_icons.get("Staff"), compound="left")
+            self.notebook.select(tab)
+        self._staff_refresh_views()
+
+    def _staff_populate_tree(self, tree, filtro_text=""):
+        tree.delete(*tree.get_children())
+        needle = filtro_text.strip().lower()
+        for item in self.staff:
+            values = [
+                item.get("nombre", ""),
+                item.get("apellido1", ""),
+                item.get("apellido2", ""),
+                item.get("movil", ""),
+                item.get("email", ""),
+            ]
+            haystack = " ".join(str(v) for v in values).lower()
+            if needle and needle not in haystack:
+                continue
+            tree.insert("", "end", iid=item.get("id"), values=values)
+
+    def _staff_refresh_views(self):
+        if self.staff_tree is not None and self.staff_filter_var is not None:
+            self._staff_populate_tree(self.staff_tree, self.staff_filter_var.get())
 
     def incidencias_crear_incidencia(self):
         self._bring_to_front()
@@ -3943,8 +3983,12 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
             )
 
     def abrir_staff(self):
-        self.notebook.select(self.tabs.get("Incidencias Club"))
-        self.incidencias_staff()
+        if not self.staff_menu:
+            return
+        self.update_idletasks()
+        x = self.btn_staff.winfo_rootx()
+        y = self.btn_staff.winfo_rooty() + self.btn_staff.winfo_height()
+        self.staff_menu.post(x, y)
 
     def extraer_accesos(self):
         """
