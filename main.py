@@ -2430,7 +2430,6 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones, text="Asignar Área", command=self.incidencias_asignar_area).pack(side="left", padx=5)
         tk.Button(botones, text="Editar Área", command=self.incidencias_editar_area).pack(side="left", padx=5)
         tk.Button(botones, text="Listar Máquina", command=self.incidencias_listar_maquina).pack(side="left", padx=5)
-        tk.Button(botones, text="Editar Máquina", command=self.incidencias_editar_maquina).pack(side="left", padx=5)
         tk.Button(botones, text="Info máquinas", command=self.incidencias_info_maquinas).pack(side="left", padx=5)
         tk.Button(botones, text="Crear Incidencia", command=self.incidencias_crear_incidencia).pack(side="left", padx=5)
         tk.Button(botones, text="Gestión Incidencias", command=self.incidencias_gestion_incidencias).pack(side="left", padx=5)
@@ -2918,8 +2917,43 @@ class ResamaniaApp(tk.Tk):
             self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
             self.incidencias_info_maquinas(self.incidencias_info_filter_area)
 
+        def edit_machine(event):
+            row = tree.identify_row(event.y)
+            if not row:
+                return
+            mid = int(row)
+            if not self._incidencias_pin_ok():
+                return
+            machine = None
+            for m in self.incidencias_db.list_machines(self.incidencias_current_map):
+                if int(m[0]) == mid:
+                    machine = m
+                    break
+            if not machine:
+                return
+            _, _area_id, nombre, serie, numero, x1, y1, x2, y2, _color, _area_nombre = machine
+            self._bring_to_front()
+            nombre_n = self._incidencias_prompt_text("Maquina", "Nombre de la maquina:", nombre)
+            if nombre_n is None:
+                return
+            serie_n = self._incidencias_prompt_text("Maquina", "Numero de serie:", serie)
+            numero_n = self._incidencias_prompt_text("Maquina", "Numero asignado:", numero)
+            self.incidencias_db.update_machine(
+                mid,
+                nombre_n or "",
+                serie_n or "",
+                numero_n or "",
+                int(x1),
+                int(y1),
+                int(x2),
+                int(y2),
+            )
+            self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
+            self.incidencias_info_maquinas(self.incidencias_info_filter_area)
+
         menu = tk.Menu(tree, tearoff=0)
         menu.add_command(label="Copiar", command=lambda: copy_cell(tree.event_context))
+        menu.add_command(label="Editar maquina", command=lambda: edit_machine(tree.event_context))
         menu.add_command(label="Eliminar maquina", command=lambda: delete_machine(tree.event_context))
         tree.bind("<<TreeviewSelect>>", on_select)
         tree.bind("<Motion>", on_hover)
