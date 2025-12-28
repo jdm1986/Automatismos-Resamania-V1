@@ -2434,8 +2434,8 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones, text="Editar Área", command=self.incidencias_editar_area).pack(side="left", padx=5)
         tk.Button(botones, text="Listar Máquina", command=self.incidencias_listar_maquina).pack(side="left", padx=5)
         tk.Button(botones, text="Info máquinas", command=self.incidencias_info_maquinas).pack(side="left", padx=5)
-        tk.Button(botones, text="Crear Incidencia", command=self.incidencias_crear_incidencia).pack(side="left", padx=5)
-        tk.Button(botones, text="Gestión Incidencias", command=self.incidencias_gestion_incidencias).pack(side="left", padx=5)
+        tk.Button(botones, text="Crear Incidencia", command=self.incidencias_crear_incidencia, bg="#ffcc80", fg="black").pack(side="left", padx=5)
+        tk.Button(botones, text="Gestión Incidencias", command=self.incidencias_gestion_incidencias, bg="#a5d6a7", fg="black").pack(side="left", padx=5)
         vista_btn = tk.Menubutton(botones, text="VISTA", bg="#bdbdbd", fg="black")
         vista_menu = tk.Menu(vista_btn, tearoff=0)
         vista_menu.add_command(label="TODAS LAS INCIDENCIAS", command=lambda: self._incidencias_set_filtro_estado("TODAS"))
@@ -2860,7 +2860,7 @@ class ResamaniaApp(tk.Tk):
         container.pack(fill="both", expand=True)
         tree = ttk.Treeview(container, columns=["area", "nombre", "serie", "numero"], show="headings")
         for c in ["area", "nombre", "serie", "numero"]:
-            tree.heading(c, text=c.capitalize())
+            tree.heading(c, text=c.capitalize(), command=lambda col=c: self._treeview_sort(tree, col))
             tree.column(c, anchor="center")
         tree.column("area", width=120, stretch=True)
         tree.column("nombre", width=140, stretch=True)
@@ -3539,6 +3539,27 @@ class ResamaniaApp(tk.Tk):
         delta = int(-1 * (event.delta / 120))
         self.incidencias_canvas.xview_scroll(delta, "units")
 
+    def _treeview_sort(self, tree, col):
+        items = [(tree.set(k, col), k) for k in tree.get_children("")]
+        if not hasattr(tree, "_sort_reverse"):
+            tree._sort_reverse = {}
+        reverse = tree._sort_reverse.get(col, False)
+
+        def to_number(val):
+            try:
+                return float(val)
+            except Exception:
+                return val
+
+        if all(str(v).strip().replace(".", "", 1).isdigit() for v, _k in items if str(v).strip()):
+            items.sort(key=lambda x: to_number(x[0]), reverse=reverse)
+        else:
+            items.sort(key=lambda x: str(x[0]).lower(), reverse=reverse)
+
+        for index, (_val, k) in enumerate(items):
+            tree.move(k, "", index)
+        tree._sort_reverse[col] = not reverse
+
     def incidencias_canvas_press(self, event):
         cx = self.incidencias_canvas.canvasx(event.x)
         cy = self.incidencias_canvas.canvasy(event.y)
@@ -3562,6 +3583,10 @@ class ResamaniaApp(tk.Tk):
                     self.incidencias_info_maquinas(self.incidencias_selected_area)
             if "machine" in tags:
                 self.incidencias_selected_machine = int(tags[1])
+                if self.incidencias_panel_mode == "machines" and self.incidencias_machines_tree is not None:
+                    machine_id = str(self.incidencias_selected_machine)
+                    self.incidencias_machines_tree.selection_set(machine_id)
+                    self.incidencias_machines_tree.see(machine_id)
             return
 
         mode = self.incidencias_mode[0]
