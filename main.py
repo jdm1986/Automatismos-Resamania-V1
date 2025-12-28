@@ -78,6 +78,7 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_socios = []
         self.incidencias_socios_filtro = "TODAS"
         self.incidencias_socios_encontrado = None
+        self.incidencias_socios_filtro_codigo = None
         self.incidencias_filtro_estado = "TODAS"
 
         # Felicitaciones (persistencia anual)
@@ -1482,7 +1483,10 @@ class ResamaniaApp(tk.Tk):
         tree = self.tree_incidencias_socios
         tree.delete(*tree.get_children())
         filtro = (self.incidencias_socios_filtro or "TODAS").upper()
+        codigo_filtro = (self.incidencias_socios_filtro_codigo or "").strip()
         for inc in sorted(self.incidencias_socios, key=lambda i: i.get("fecha", ""), reverse=True):
+            if codigo_filtro and str(inc.get("codigo", "")).strip() != codigo_filtro:
+                continue
             estado = str(inc.get("estado", "PENDIENTE")).upper()
             if filtro != "TODAS" and estado != filtro:
                 continue
@@ -1541,13 +1545,18 @@ class ResamaniaApp(tk.Tk):
             messagebox.showwarning("Sin cliente", "No se encontro el cliente.")
             return
         self.incidencias_socios_encontrado = cliente
+        self.incidencias_socios_filtro_codigo = None
         info = f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}"
         self.lbl_incidencias_socios_info.config(text=info)
+        self._socios_mostrar_boton_historial(codigo)
 
     def nueva_incidencia_socio(self):
         if not getattr(self, "incidencias_socios_encontrado", None):
             messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
             return
+        codigo = self.incidencias_socios_encontrado.get("codigo")
+        if codigo and any(str(i.get("codigo", "")).strip() == str(codigo).strip() for i in self.incidencias_socios):
+            messagebox.showwarning("Aviso", "Este cliente ya ha tenido incidencias anteriormente.")
         staff = self._staff_select("Incidencia socio", "Quien registra la incidencia?")
         if not staff:
             return
@@ -1575,6 +1584,7 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_socios.append(inc)
         self.guardar_incidencias_socios()
         self.refrescar_incidencias_socios_tree()
+        self._socios_mostrar_boton_historial(inc.get("codigo"))
         messagebox.showinfo("Guardado", "Incidencia registrada.")
 
     def _socios_selector_estado(self):
@@ -1604,6 +1614,8 @@ class ResamaniaApp(tk.Tk):
         return res["val"]
 
     def _socios_cambiar_estado(self, inc_id):
+        if not inc_id:
+            return
         estado = self._socios_selector_estado()
         if not estado:
             return
@@ -1697,6 +1709,51 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_socios_filtro = estado
         self.refrescar_incidencias_socios_tree()
 
+    def _socios_mostrar_boton_historial(self, codigo):
+        if not hasattr(self, "btn_incidencias_socios_historial"):
+            return
+        if not codigo:
+            self.btn_incidencias_socios_historial.pack_forget()
+            return
+        hay = any(str(i.get("codigo", "")).strip() == str(codigo).strip() for i in self.incidencias_socios)
+        if hay:
+            self.btn_incidencias_socios_historial.configure(command=lambda c=codigo: self._socios_filtrar_por_cliente(c))
+            if not self.btn_incidencias_socios_historial.winfo_ismapped():
+                self.btn_incidencias_socios_historial.pack(side="left", padx=5)
+            self._socios_parpadear_boton(self.btn_incidencias_socios_historial)
+        else:
+            self.btn_incidencias_socios_historial.pack_forget()
+
+    def _socios_parpadear_boton(self, btn):
+        try:
+            normal = btn.cget("background")
+        except Exception:
+            normal = None
+        highlight = "#ffb74d"
+
+        def toggle(count=0):
+            if count >= 6:
+                if normal is not None:
+                    btn.configure(background=normal)
+                return
+            btn.configure(background=highlight if count % 2 == 0 else normal)
+            self.after(200, lambda: toggle(count + 1))
+
+        toggle()
+
+    def _socios_filtrar_por_cliente(self, codigo):
+        self.incidencias_socios_filtro_codigo = str(codigo).strip()
+        self.refrescar_incidencias_socios_tree()
+
+    def _socios_limpiar_filtro_cliente(self):
+        self.incidencia_socios_codigo.delete(0, tk.END)
+        self.incidencias_socios_encontrado = None
+        self.incidencias_socios_filtro_codigo = None
+        self.lbl_incidencias_socios_info.config(text="")
+        if hasattr(self, "btn_incidencias_socios_historial"):
+            self.btn_incidencias_socios_historial.pack_forget()
+        self.refrescar_incidencias_socios_tree()
+
     def create_incidencias_socios_tab(self, tab):
         frm = tk.Frame(tab)
         frm.pack(fill="both", expand=True, padx=10, pady=10)
@@ -1716,6 +1773,8 @@ class ResamaniaApp(tk.Tk):
         vista_menu.add_command(label="RESUELTAS", command=lambda: self._socios_set_filtro("RESUELTO"))
         vista_btn.configure(menu=vista_menu)
         vista_btn.pack(side="left", padx=5)
+        tk.Button(top, text="LIMPIAR", command=self._socios_limpiar_filtro_cliente).pack(side="left", padx=5)
+        self.btn_incidencias_socios_historial = tk.Button(top, text="VER INCIDENCIAS ANTERIORES", bg="#ffcc80", fg="black")
         self.lbl_incidencias_socios_info = tk.Label(top, text="", anchor="w")
         self.lbl_incidencias_socios_info.pack(side="left", padx=10)
 
@@ -1807,9 +1866,26 @@ class ResamaniaApp(tk.Tk):
             else:
                 hide_tooltip()
 
+        def on_double_click(event):
+            item = tree.identify_row(event.y)
+            if not item:
+                return
+            self._socios_cambiar_estado(item)
+
+        def on_select(_event):
+            sel = tree.selection()
+            if not sel:
+                self._socios_mostrar_boton_historial(None)
+                return
+            values = tree.item(sel[0], "values")
+            codigo_sel = values[0] if values else ""
+            self._socios_mostrar_boton_historial(codigo_sel)
+
         tree.bind("<Button-3>", on_right_click)
         tree.bind("<Motion>", on_hover)
         tree.bind("<Leave>", lambda _e: hide_tooltip())
+        tree.bind("<Double-1>", on_double_click)
+        tree.bind("<<TreeviewSelect>>", on_select)
         self.tree_incidencias_socios = tree
         tab.tree = tree
         self.refrescar_incidencias_socios_tree()
