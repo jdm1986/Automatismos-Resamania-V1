@@ -122,6 +122,7 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_hover_blink_after = None
         self.incidencias_hover_blink_original = None
         self.incidencias_creador = None
+        self.incidencias_pan_active = False
 
         # Salidas PMR autorizados/advertidos
         self.pmr_autorizados_file = os.path.join("data", "pmr_autorizados.json")
@@ -156,23 +157,6 @@ class ResamaniaApp(tk.Tk):
         right_frame = tk.Frame(top_frame)
         right_frame.grid(row=0, column=2, sticky="nsew", padx=10)
 
-        # Logo Fitness Park
-        logo_fp_path = get_logo_path("LogoFpark.png")
-        if os.path.exists(logo_fp_path):
-            img_fp = Image.open(logo_fp_path)
-            img_fp = img_fp.resize((550, 140))
-            self.logo_fp_img = ImageTk.PhotoImage(img_fp)
-            tk.Label(left_frame, image=self.logo_fp_img).pack(expand=True)
-
-        # Instrucciones centradas
-        tk.Label(
-            center_frame,
-            text="INSTRUCCIONES PARA USO CORRECTO:",
-            justify="center",
-            anchor="center",
-            font=("Arial", 10, "bold"),
-        ).pack(anchor="center")
-
         instrucciones = (
             "- La carpeta seleccionada debe contener los siguientes archivos (exportados de Resamania y deben sobreescribir los existentes):\n\n"
             "   - RESUMEN CLIENTE.csv\n"
@@ -182,33 +166,33 @@ class ResamaniaApp(tk.Tk):
             "- Todos los archivos deben ser del mismo día de exportación.\n"
             "- Pulsa el botón 'Seleccionar carpeta' para comenzar la revisión.\n"
         )
-        tk.Label(
-            center_frame,
-            text=instrucciones,
-            justify="left",
-            anchor="w",
-            wraplength=560,
-        ).pack(anchor="w")
+        self.instrucciones_text = instrucciones
+        self.instrucciones_nota = "NOTA: Una vez seleccionada una carpeta, el programa la mantiene por defecto hasta que elijas otra."
 
-        tk.Label(
-            center_frame,
-            text="NOTA: Una vez seleccionada una carpeta, el programa la mantiene por defecto hasta que elijas otra.",
-            justify="left",
-            anchor="w",
-            wraplength=560,
-            font=("Arial", 10, "bold"),
-        ).pack(anchor="w", pady=(4, 0))
-
-        # Logo JDM Developer
+        # Logo JDM Developer (izquierda)
         logo_path = get_logo_path("logodeveloper.png")
         if os.path.exists(logo_path):
             img = Image.open(logo_path)
             img = img.resize((140, 140))
             self.logo_img = ImageTk.PhotoImage(img)
-            tk.Label(right_frame, image=self.logo_img).pack(expand=True)
+            tk.Label(left_frame, image=self.logo_img).pack(expand=True)
+
+        # Logo Fitness Park (centro)
+        logo_fp_path = get_logo_path("LogoFpark.png")
+        if os.path.exists(logo_fp_path):
+            img_fp = Image.open(logo_fp_path)
+            img_fp = img_fp.resize((550, 140))
+            self.logo_fp_img = ImageTk.PhotoImage(img_fp)
+            tk.Label(center_frame, image=self.logo_fp_img).pack(expand=True)
+
+        # Logo JDM Developer (derecha)
+        if os.path.exists(logo_path):
+            self.logo_img_right = ImageTk.PhotoImage(img)
+            tk.Label(right_frame, image=self.logo_img_right).pack(expand=True)
 
         botones_frame = tk.Frame(self)
         botones_frame.pack(pady=5)
+        tk.Button(botones_frame, text="INSTRUCCIONES", command=self.mostrar_instrucciones, bg="#ffeb3b", fg="black").pack(side=tk.LEFT, padx=10)
         self.btn_staff = tk.Button(botones_frame, text="STAFF", command=self.abrir_staff, bg="#9e9e9e", fg="black")
         self.btn_staff.pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
@@ -863,6 +847,25 @@ class ResamaniaApp(tk.Tk):
         win.grab_set()
         win.wait_window()
         return res["item"]
+
+    def mostrar_instrucciones(self):
+        texto = self.instrucciones_text if hasattr(self, "instrucciones_text") else ""
+        nota = self.instrucciones_nota if hasattr(self, "instrucciones_nota") else ""
+        win = tk.Toplevel(self)
+        win.title("Instrucciones")
+        win.transient(self)
+        win.resizable(False, False)
+        tk.Label(win, text="INSTRUCCIONES PARA USO CORRECTO:", font=("Arial", 10, "bold")).pack(padx=12, pady=(10, 4))
+        body = tk.Text(win, width=70, height=12, wrap="word")
+        body.pack(padx=12, pady=(0, 6))
+        body.insert("1.0", texto)
+        if nota:
+            body.insert("end", "\n" + nota)
+        body.configure(state="disabled")
+        btn = tk.Button(win, text="Cerrar", command=win.destroy)
+        btn.pack(pady=(0, 10))
+        self._incidencias_center_window(win)
+        win.grab_set()
 
     def select_folder(self):
         folder = filedialog.askdirectory()
@@ -2476,6 +2479,10 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_canvas.bind("<ButtonRelease-1>", self.incidencias_canvas_release)
         self.incidencias_canvas.bind("<Motion>", self.incidencias_canvas_hover)
         self.incidencias_canvas.bind("<Leave>", self.incidencias_canvas_leave)
+        self.incidencias_canvas.bind("<MouseWheel>", self.incidencias_canvas_mousewheel)
+        self.incidencias_canvas.bind("<Shift-MouseWheel>", self.incidencias_canvas_mousewheel_x)
+        self.incidencias_canvas.bind("<Button-4>", lambda _e: self.incidencias_canvas.yview_scroll(-1, "units"))
+        self.incidencias_canvas.bind("<Button-5>", lambda _e: self.incidencias_canvas.yview_scroll(1, "units"))
 
         self.incidencias_cargar_listado_mapas()
         self.incidencias_gestion_incidencias()
@@ -3524,16 +3531,31 @@ class ResamaniaApp(tk.Tk):
         win.wait_window()
         return resultado["valor"]
 
+    def incidencias_canvas_mousewheel(self, event):
+        delta = int(-1 * (event.delta / 120))
+        self.incidencias_canvas.yview_scroll(delta, "units")
+
+    def incidencias_canvas_mousewheel_x(self, event):
+        delta = int(-1 * (event.delta / 120))
+        self.incidencias_canvas.xview_scroll(delta, "units")
+
     def incidencias_canvas_press(self, event):
         cx = self.incidencias_canvas.canvasx(event.x)
         cy = self.incidencias_canvas.canvasy(event.y)
         if not self.incidencias_mode:
-            # seleccionar area/maquina
-            item = self.incidencias_canvas.find_closest(cx, cy)
-            if not item:
+            # seleccionar area/maquina o iniciar paneo
+            items = self.incidencias_canvas.find_overlapping(cx, cy, cx, cy)
+            target = None
+            for item_id in items:
+                tags = self.incidencias_canvas.gettags(item_id)
+                if "area" in tags or "machine" in tags:
+                    target = item_id
+                    break
+            if target is None:
+                self.incidencias_pan_active = True
+                self.incidencias_canvas.scan_mark(event.x, event.y)
                 return
-            item_id = item[0]
-            tags = self.incidencias_canvas.gettags(item_id)
+            tags = self.incidencias_canvas.gettags(target)
             if "area" in tags:
                 self.incidencias_selected_area = int(tags[1])
                 if self.incidencias_panel_mode == "machines":
@@ -3669,6 +3691,9 @@ class ResamaniaApp(tk.Tk):
         )
 
     def incidencias_canvas_drag(self, event):
+        if self.incidencias_pan_active and not self.incidencias_mode:
+            self.incidencias_canvas.scan_dragto(event.x, event.y, gain=1)
+            return
         if not self.incidencias_draw_rect:
             return
         x1, y1 = self.incidencias_draw_start
@@ -3677,6 +3702,9 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_canvas.coords(self.incidencias_draw_rect, x1, y1, cx, cy)
 
     def incidencias_canvas_release(self, event):
+        if self.incidencias_pan_active and not self.incidencias_mode:
+            self.incidencias_pan_active = False
+            return
         if not self.incidencias_mode:
             return
         if not self.incidencias_draw_rect:
