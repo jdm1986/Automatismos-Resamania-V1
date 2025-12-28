@@ -1465,6 +1465,9 @@ class ResamaniaApp(tk.Tk):
                 if "id" not in inc:
                     inc["id"] = uuid.uuid4().hex
                     changed = True
+                if "gestion" not in inc:
+                    inc["gestion"] = ""
+                    changed = True
             if changed:
                 self.guardar_incidencias_socios()
         except Exception:
@@ -1505,6 +1508,7 @@ class ResamaniaApp(tk.Tk):
                 inc.get("email", ""),
                 inc.get("movil", ""),
                 inc.get("incidencia", ""),
+                inc.get("gestion", ""),
                 inc.get("fecha", ""),
                 estado,
                 reporte,
@@ -1576,6 +1580,7 @@ class ResamaniaApp(tk.Tk):
             "email": cliente.get("email", ""),
             "movil": cliente.get("movil", ""),
             "incidencia": incidencia.strip(),
+            "gestion": "",
             "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "estado": "PENDIENTE",
             "reporte_path": reporte_path,
@@ -1639,6 +1644,18 @@ class ResamaniaApp(tk.Tk):
             nuevo = self._incidencias_pedir_reporte_visual()
             if nuevo:
                 inc["reporte_path"] = nuevo
+        self.guardar_incidencias_socios()
+        self.refrescar_incidencias_socios_tree()
+
+    def _socios_modificar_gestion(self, inc_id):
+        inc = next((i for i in self.incidencias_socios if i.get("id") == inc_id), None)
+        if not inc:
+            return
+        self._bring_to_front()
+        gestion = self._incidencias_prompt_text("Gestion", "Agregar/editar gestion:", inc.get("gestion", ""))
+        if gestion is None:
+            return
+        inc["gestion"] = gestion.strip()
         self.guardar_incidencias_socios()
         self.refrescar_incidencias_socios_tree()
 
@@ -1778,7 +1795,7 @@ class ResamaniaApp(tk.Tk):
         self.lbl_incidencias_socios_info = tk.Label(top, text="", anchor="w")
         self.lbl_incidencias_socios_info.pack(side="left", padx=10)
 
-        cols = ["codigo", "nombre", "apellidos", "email", "movil", "incidencia", "fecha", "estado", "reporte", "prestado_por"]
+        cols = ["codigo", "nombre", "apellidos", "email", "movil", "incidencia", "gestion", "fecha", "estado", "reporte", "prestado_por"]
         table = tk.Frame(frm)
         table.pack(fill="both", expand=True)
         table.rowconfigure(0, weight=1)
@@ -1790,7 +1807,7 @@ class ResamaniaApp(tk.Tk):
             width = 120
             if c in ("email",):
                 width = 200
-            elif c in ("incidencia",):
+            elif c in ("incidencia", "gestion"):
                 width = 260
             elif c in ("prestado_por",):
                 width = 160
@@ -1813,6 +1830,7 @@ class ResamaniaApp(tk.Tk):
             tree.selection_set(row)
             menu = tk.Menu(tree, tearoff=0)
             menu.add_command(label="Modificar incidencia", command=lambda: self._socios_editar_incidencia(row))
+            menu.add_command(label="Modificar gestion", command=lambda: self._socios_modificar_gestion(row))
             menu.add_command(label="Cambiar estado", command=lambda: self._socios_cambiar_estado(row))
             menu.add_command(label="Ver reporte visual", command=lambda: self._socios_ver_reporte(row))
             menu.add_command(label="Modificar reporte visual", command=lambda: self._socios_modificar_reporte(row))
@@ -1856,7 +1874,7 @@ class ResamaniaApp(tk.Tk):
                 return
             col = tree.identify_column(event.x)
             col_index = int(col[1:]) - 1 if col else -1
-            if col_index == cols.index("incidencia"):
+            if col_index in (cols.index("incidencia"), cols.index("gestion")):
                 values = tree.item(item, "values")
                 texto = values[col_index] if col_index < len(values) else ""
                 if texto:
