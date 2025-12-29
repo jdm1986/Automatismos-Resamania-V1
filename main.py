@@ -4232,18 +4232,6 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
         Abre Outlook con un borrador para felicitar cumpleanos (1 vez por año).
         """
         self._bring_to_front()
-        pin = simpledialog.askstring(
-            "Codigo de seguridad",
-            "Introduce el codigo de seguridad:",
-            show="*",
-            parent=self,
-        )
-        if pin is None:
-            return
-        if pin.strip() != get_security_code():
-            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
-            return
-
         try:
             df = obtener_cumpleanos_hoy()
         except Exception:
@@ -4279,7 +4267,7 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
             messagebox.showinfo("Cumplea\u00f1os", "No hay cumplea\u00f1os pendientes de enviar.")
             return
 
-        asunto = "Feliz cumple\u00f1os"
+        asunto = "\u00a1FELICIDADES!! EL EQUIPO HUMANO DE FITNESS PARK VILLALOBOS TE DESEA LO MEJOR!!"
         cuerpo_html = (
             '<div style="font-family:Arial,sans-serif;font-size:14px;">'
             '<img src="cid:{{CID}}" alt="Feliz cumple\u00f1os" style="max-width:100%;">'
