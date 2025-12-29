@@ -888,6 +888,7 @@ class ResamaniaApp(tk.Tk):
         tab = self.tabs.get("Incidencias Club")
         if tab:
             self.notebook.select(tab)
+            self.after(0, self.incidencias_info_maquinas)
 
     def select_folder(self):
         folder = filedialog.askdirectory()
@@ -2501,6 +2502,7 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_canvas.bind("<ButtonRelease-1>", self.incidencias_canvas_release)
         self.incidencias_canvas.bind("<Motion>", self.incidencias_canvas_hover)
         self.incidencias_canvas.bind("<Leave>", self.incidencias_canvas_leave)
+        self.incidencias_canvas.bind("<Button-3>", self.incidencias_canvas_right_click)
         self.incidencias_canvas.bind("<MouseWheel>", self.incidencias_canvas_mousewheel)
         self.incidencias_canvas.bind("<Shift-MouseWheel>", self.incidencias_canvas_mousewheel_x)
         self.incidencias_canvas.bind("<Button-4>", lambda _e: self.incidencias_canvas.yview_scroll(-1, "units"))
@@ -3581,6 +3583,113 @@ class ResamaniaApp(tk.Tk):
         for index, (_val, k) in enumerate(items):
             tree.move(k, "", index)
         tree._sort_reverse[col] = not reverse
+
+    def _incidencias_get_machine_by_id(self, mid):
+        machines = self.incidencias_db.list_machines(self.incidencias_current_map)
+        for m in machines:
+            if int(m[0]) == int(mid):
+                return m
+        return None
+
+    def _incidencias_crear_incidencia_maquina(self, mid):
+        machine = self._incidencias_get_machine_by_id(mid)
+        if not machine:
+            return
+        _mid, area_id, _nombre, _serie, _numero, *_rest = machine
+        self._bring_to_front()
+        elemento = self._incidencias_prompt_text("Incidencia", "Material/elemento:")
+        descripcion = self._incidencias_prompt_text("Incidencia", "Describe la incidencia:")
+        if elemento is None and descripcion is None:
+            return
+        reporte_path = self._incidencias_pedir_reporte_visual()
+        creador = self.incidencias_creador or {}
+        self.incidencias_db.add_incident(
+            self.incidencias_current_map,
+            area_id,
+            mid,
+            elemento or "",
+            descripcion or "",
+            reporte_path=reporte_path,
+            creador_nombre=creador.get("nombre", ""),
+            creador_apellido1=creador.get("apellido1", ""),
+            creador_apellido2=creador.get("apellido2", ""),
+            creador_movil=creador.get("movil", ""),
+            creador_email=creador.get("email", ""),
+        )
+        self.incidencias_gestion_incidencias()
+
+    def _incidencias_editar_maquina_directa(self, mid):
+        machine = self._incidencias_get_machine_by_id(mid)
+        if not machine:
+            return
+        _, _area_id, nombre, serie, numero, x1, y1, x2, y2, _color, _area_nombre = machine
+        self._bring_to_front()
+        nombre_n = self._incidencias_prompt_text("Maquina", "Nombre de la maquina:", nombre)
+        if nombre_n is None:
+            return
+        serie_n = self._incidencias_prompt_text("Maquina", "Numero de serie:", serie)
+        numero_n = self._incidencias_prompt_text("Maquina", "Numero asignado:", numero)
+        self.incidencias_db.update_machine(
+            mid,
+            nombre_n or "",
+            serie_n or "",
+            numero_n or "",
+            int(x1),
+            int(y1),
+            int(x2),
+            int(y2),
+        )
+        self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
+        self.incidencias_info_maquinas(self.incidencias_info_filter_area)
+
+    def _incidencias_eliminar_maquina_directa(self, mid):
+        self._bring_to_front()
+        if not messagebox.askyesno("Eliminar", "Eliminar maquina y todos sus datos?", parent=self):
+            return
+        self.incidencias_db.delete_machine(mid)
+        self.incidencias_mostrar_mapa(self.incidencias_mapas[self.incidencias_map_index])
+        self.incidencias_info_maquinas(self.incidencias_info_filter_area)
+
+    def incidencias_canvas_right_click(self, event):
+        cx = self.incidencias_canvas.canvasx(event.x)
+        cy = self.incidencias_canvas.canvasy(event.y)
+        items = self.incidencias_canvas.find_overlapping(cx, cy, cx, cy)
+        target = None
+        for item_id in items:
+            tags = self.incidencias_canvas.gettags(item_id)
+            if "machine" in tags:
+                target = item_id
+                break
+        if target is None:
+            return
+        tags = self.incidencias_canvas.gettags(target)
+        mid = int(tags[1])
+        self.incidencias_selected_machine = mid
+        if self.incidencias_panel_mode == "machines" and self.incidencias_machines_tree is not None:
+            self.incidencias_machines_tree.selection_set(str(mid))
+            self.incidencias_machines_tree.see(str(mid))
+        self._incidencias_resaltar_maquina(mid)
+
+        machine = self._incidencias_get_machine_by_id(mid)
+        serie = ""
+        if machine:
+            serie = str(machine[3]).strip()
+
+        menu = tk.Menu(self.incidencias_canvas, tearoff=0)
+        menu.add_command(
+            label="Copiar NºSerie",
+            command=lambda: (self.clipboard_clear(), self.clipboard_append(serie), self.update()),
+        )
+        menu.add_command(label="Crear incidencia", command=lambda: self._incidencias_crear_incidencia_maquina(mid))
+        menu.add_command(
+            label="Editar maquina",
+            command=lambda: (self._incidencias_pin_ok() and self._incidencias_editar_maquina_directa(mid)),
+        )
+        menu.add_command(
+            label="Eliminar maquina",
+            command=lambda: (self._incidencias_pin_ok() and self._incidencias_eliminar_maquina_directa(mid)),
+        )
+        menu.post(event.x_root, event.y_root)
 
     def incidencias_canvas_press(self, event):
         cx = self.incidencias_canvas.canvasx(event.x)
