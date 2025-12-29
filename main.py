@@ -198,17 +198,20 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Actualizar datos", command=self.load_data).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="ENVIAR FELICITACIÓN", command=self.enviar_felicitacion, fg="#b30000").pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="ENVÍO MARTES AVANZA FIT", command=self.enviar_avanza_fit, fg="#b30000").pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="EXTRAER ACCESOS", command=self.extraer_accesos, fg="#0066cc").pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="IR A PRÉSTAMOS", command=lambda: self.notebook.select(self.tabs.get("Prestamos")), bg="#ff9800", fg="black").pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="IR A IMPAGOS", command=self.ir_a_impagos, bg="#ff6b6b", fg="black").pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=lambda: self.notebook.select(self.tabs.get("Incidencias Club")), bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="INCIDENCIAS SOCIOS", command=lambda: self.notebook.select(self.tabs.get("Incidencias Socios")), bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=self.ir_a_incidencias_club, bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="GESTIÓN CLIENTES", command=self.mostrar_gestion_clientes, bg="#c5e1a5", fg="black").pack(side=tk.LEFT, padx=10)
         self.staff_menu = tk.Menu(self, tearoff=0)
         self.staff_menu.add_command(label="GESTIONAR STAFF", command=self.abrir_gestion_staff)
         self.staff_menu.add_command(label="DIA DE ASUNTOS PROPIOS", command=self.enviar_asuntos_propios)
         self.staff_menu.add_command(label="SOLICITUD DE CAMBIO DE TURNO", command=self.enviar_cambio_turno)
+
+        self.gestion_clientes_frame = tk.Frame(self)
+        tk.Button(self.gestion_clientes_frame, text="ENVIAR FELICITACIÓN", command=self.enviar_felicitacion, fg="#b30000").pack(side=tk.LEFT, padx=5)
+        tk.Button(self.gestion_clientes_frame, text="ENVÍO MARTES AVANZA FIT", command=self.enviar_avanza_fit, fg="#b30000").pack(side=tk.LEFT, padx=5)
+        tk.Button(self.gestion_clientes_frame, text="EXTRAER ACCESOS", command=self.extraer_accesos, fg="#0066cc").pack(side=tk.LEFT, padx=5)
+        tk.Button(self.gestion_clientes_frame, text="IR A PRÉSTAMOS", command=lambda: self.notebook.select(self.tabs.get("Prestamos")), bg="#ff9800", fg="black").pack(side=tk.LEFT, padx=5)
+        tk.Button(self.gestion_clientes_frame, text="IR A IMPAGOS", command=self.ir_a_impagos, bg="#ff6b6b", fg="black").pack(side=tk.LEFT, padx=5)
+        tk.Button(self.gestion_clientes_frame, text="INCIDENCIAS SOCIOS", command=lambda: self.notebook.select(self.tabs.get("Incidencias Socios")), bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=5)
 
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("Arial", 9, "bold"), padding=[24, 6], anchor="w")
@@ -866,6 +869,25 @@ class ResamaniaApp(tk.Tk):
         btn.pack(pady=(0, 10))
         self._incidencias_center_window(win)
         win.grab_set()
+
+    def mostrar_gestion_clientes(self):
+        if not hasattr(self, "gestion_clientes_frame"):
+            return
+        if not self.gestion_clientes_frame.winfo_ismapped():
+            self.gestion_clientes_frame.pack(pady=4, fill="x", before=self.notebook)
+        tab = self.tabs.get("Incidencias Socios")
+        if tab:
+            self.notebook.select(tab)
+
+    def ocultar_gestion_clientes(self):
+        if hasattr(self, "gestion_clientes_frame") and self.gestion_clientes_frame.winfo_ismapped():
+            self.gestion_clientes_frame.pack_forget()
+
+    def ir_a_incidencias_club(self):
+        self.ocultar_gestion_clientes()
+        tab = self.tabs.get("Incidencias Club")
+        if tab:
+            self.notebook.select(tab)
 
     def select_folder(self):
         folder = filedialog.askdirectory()
