@@ -84,6 +84,12 @@ class ResamaniaApp(tk.Tk):
         # Felicitaciones (persistencia anual)
         self.felicitaciones_file = os.path.join("data", "felicitaciones.json")
         self.felicitaciones_enviadas = {}
+        self.avanza_fit_envios_file = os.path.join("data", "avanza_fit_envios.json")
+        self.avanza_fit_envios = {}
+
+        # Parpadeo de botones
+        self.blink_states = {}
+        self.blink_interval_ms = 650
 
         # Impagos (SQLite)
         self.impagos_db = ImpagosDB(os.path.join("data", "impagos.db"))
@@ -137,11 +143,13 @@ class ResamaniaApp(tk.Tk):
         self.cargar_prestamos_json()
         self.cargar_incidencias_socios()
         self.cargar_felicitaciones()
+        self.cargar_avanza_fit_envios()
         self.cargar_staff()
         self.cargar_pmr_autorizados()
         self.cargar_pmr_advertencias()
         if self.folder_path:
             self.load_data()
+        self.after(500, self.update_blink_states)
 
     def create_widgets(self):
         top_frame = tk.Frame(self)
@@ -199,17 +207,29 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="Actualizar datos", command=self.load_data).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=self.ir_a_incidencias_club, bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="GESTIÓN CLIENTES", command=self.mostrar_gestion_clientes, bg="#c5e1a5", fg="black").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="GESTION CLIENTES", command=self.mostrar_gestion_clientes, bg="#c5e1a5", fg="black").pack(side=tk.LEFT, padx=10)
         self.staff_menu = tk.Menu(self, tearoff=0)
         self.staff_menu.add_command(label="GESTIONAR STAFF", command=self.abrir_gestion_staff)
         self.staff_menu.add_command(label="DIA DE ASUNTOS PROPIOS", command=self.enviar_asuntos_propios)
         self.staff_menu.add_command(label="SOLICITUD DE CAMBIO DE TURNO", command=self.enviar_cambio_turno)
 
         self.gestion_clientes_frame = tk.Frame(self)
-        tk.Button(self.gestion_clientes_frame, text="ENVIAR FELICITACIÓN", command=self.enviar_felicitacion, fg="#b30000").pack(side=tk.LEFT, padx=5)
-        tk.Button(self.gestion_clientes_frame, text="ENVÍO MARTES AVANZA FIT", command=self.enviar_avanza_fit, fg="#b30000").pack(side=tk.LEFT, padx=5)
+        self.btn_enviar_felicitacion = tk.Button(
+            self.gestion_clientes_frame,
+            text="ENVIAR FELICITACION",
+            command=self.enviar_felicitacion,
+            fg="#b30000",
+        )
+        self.btn_enviar_felicitacion.pack(side=tk.LEFT, padx=5)
+        self.btn_avanza_fit = tk.Button(
+            self.gestion_clientes_frame,
+            text="ENVIO MARTES AVANZA FIT",
+            command=self.enviar_avanza_fit,
+            fg="#b30000",
+        )
+        self.btn_avanza_fit.pack(side=tk.LEFT, padx=5)
         tk.Button(self.gestion_clientes_frame, text="EXTRAER ACCESOS", command=self.extraer_accesos, fg="#0066cc").pack(side=tk.LEFT, padx=5)
-        tk.Button(self.gestion_clientes_frame, text="IR A PRÉSTAMOS", command=lambda: self.notebook.select(self.tabs.get("Prestamos")), bg="#ff9800", fg="black").pack(side=tk.LEFT, padx=5)
+        tk.Button(self.gestion_clientes_frame, text="IR A PRESTAMOS", command=lambda: self.notebook.select(self.tabs.get("Prestamos")), bg="#ff9800", fg="black").pack(side=tk.LEFT, padx=5)
         tk.Button(self.gestion_clientes_frame, text="IR A IMPAGOS", command=self.ir_a_impagos, bg="#ff6b6b", fg="black").pack(side=tk.LEFT, padx=5)
         tk.Button(self.gestion_clientes_frame, text="INCIDENCIAS SOCIOS", command=lambda: self.notebook.select(self.tabs.get("Incidencias Socios")), bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=5)
 
@@ -776,8 +796,8 @@ class ResamaniaApp(tk.Tk):
             "nombre": self._staff_get_value(item, "nombre", "Nombre", "NOMBRE"),
             "apellido1": self._staff_get_value(item, "apellido1", "Apellido1", "APELLIDO1", "Apellido 1", "ap1"),
             "apellido2": self._staff_get_value(item, "apellido2", "Apellido2", "APELLIDO2", "Apellido 2", "ap2"),
-            "movil": self._staff_get_value(item, "movil", "Movil", "Móvil", "telefono", "Teléfono", "Telefono", "MOVIL"),
-            "email": self._staff_get_value(item, "email", "Email", "correo", "Correo", "correo electronico", "Correo electrónico"),
+            "movil": self._staff_get_value(item, "movil", "Movil", "M?vil", "telefono", "Tel?fono", "Telefono", "MOVIL"),
+            "email": self._staff_get_value(item, "email", "Email", "correo", "Correo", "correo electronico", "Correo electr?nico"),
         }
         normalized["movil"] = self._normalizar_movil(normalized["movil"])
         return normalized
@@ -925,6 +945,7 @@ class ResamaniaApp(tk.Tk):
 
             self._mostrar_grupo("Accesos", "Accesos Dobles")
             self._mostrar_grupo("Servicios", "Socios Ultimate")
+            self.update_blink_states()
             messagebox.showinfo("Exito", "Datos cargados correctamente.")
         except Exception as e:
             messagebox.showerror("Error al cargar datos", str(e))
@@ -2007,6 +2028,155 @@ class ResamaniaApp(tk.Tk):
         except Exception:
             pass
 
+    def cargar_avanza_fit_envios(self):
+        try:
+            if os.path.exists(self.avanza_fit_envios_file):
+                with open(self.avanza_fit_envios_file, "r", encoding="utf-8") as f:
+                    self.avanza_fit_envios = json.load(f)
+        except Exception:
+            self.avanza_fit_envios = {}
+
+    def guardar_avanza_fit_envios(self):
+        try:
+            os.makedirs(os.path.dirname(self.avanza_fit_envios_file), exist_ok=True)
+            with open(self.avanza_fit_envios_file, "w", encoding="utf-8") as f:
+                json.dump(self.avanza_fit_envios, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _start_blink(self, key, button, on_bg="#ffeb3b", on_fg="black"):
+        if button is None:
+            return
+        if key in self.blink_states:
+            return
+        off_bg = button.cget("bg")
+        off_fg = button.cget("fg")
+        state = {
+            "button": button,
+            "on": False,
+            "on_bg": on_bg,
+            "off_bg": off_bg,
+            "on_fg": on_fg,
+            "off_fg": off_fg,
+            "job": None,
+        }
+        self.blink_states[key] = state
+
+        def toggle():
+            current = self.blink_states.get(key)
+            if not current:
+                return
+            current["on"] = not current["on"]
+            try:
+                current["button"].config(
+                    bg=current["on_bg"] if current["on"] else current["off_bg"],
+                    fg=current["on_fg"] if current["on"] else current["off_fg"],
+                )
+            except tk.TclError:
+                self.blink_states.pop(key, None)
+                return
+            current["job"] = self.after(self.blink_interval_ms, toggle)
+
+        toggle()
+
+    def _stop_blink(self, key):
+        current = self.blink_states.pop(key, None)
+        if not current:
+            return
+        if current.get("job"):
+            try:
+                self.after_cancel(current["job"])
+            except Exception:
+                pass
+        try:
+            current["button"].config(bg=current["off_bg"], fg=current["off_fg"])
+        except tk.TclError:
+            pass
+
+    def update_blink_states(self):
+        self._update_felicitacion_blink()
+        self._update_avanza_fit_blink()
+        self._update_impagos_blinks()
+
+    def _hay_cumpleanos_pendientes(self):
+        try:
+            df = obtener_cumpleanos_hoy()
+        except Exception:
+            return False
+        if df is None or df.empty:
+            return False
+
+        def normalize(text):
+            t = unicodedata.normalize("NFD", str(text or "")).upper().strip()
+            return "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
+
+        colmap = {normalize(c): c for c in df.columns}
+        col_email = colmap.get("CORREO ELECTRONICO") or colmap.get("EMAIL") or colmap.get("CORREO")
+        if not col_email:
+            return False
+
+        current_year = datetime.now().year
+        for _, row in df.iterrows():
+            email = str(row.get(col_email, "")).strip()
+            if not email:
+                continue
+            sent_year = self.felicitaciones_enviadas.get(email)
+            if sent_year != current_year:
+                return True
+        return False
+
+    def _update_felicitacion_blink(self):
+        btn = getattr(self, "btn_enviar_felicitacion", None)
+        if not btn:
+            return
+        if self._hay_cumpleanos_pendientes():
+            self._start_blink("felicitacion", btn, on_bg="#ffe082", on_fg="black")
+        else:
+            self._stop_blink("felicitacion")
+
+    def _update_avanza_fit_blink(self):
+        btn = getattr(self, "btn_avanza_fit", None)
+        if not btn:
+            return
+        today = datetime.now().date().isoformat()
+        is_tuesday = datetime.now().weekday() == 1
+        sent_date = str(self.avanza_fit_envios.get("last_sent_date", ""))
+        if is_tuesday and sent_date != today:
+            self._start_blink("avanza_fit", btn, on_bg="#ffe082", on_fg="black")
+        else:
+            self._stop_blink("avanza_fit")
+
+    def _get_impagos_pending_count(self, view):
+        if not self.impagos_last_export:
+            self.impagos_last_export = self.impagos_db.get_last_export()
+        if not self.impagos_last_export:
+            return 0
+        try:
+            rows = self.impagos_db.fetch_view(view, self.impagos_last_export)
+        except Exception:
+            return 0
+        return len(rows) if rows else 0
+
+    def _update_impagos_blinks(self):
+        btn1 = getattr(self, "btn_impagos_email_1", None)
+        btn2 = getattr(self, "btn_impagos_email_2", None)
+        btnr = getattr(self, "btn_impagos_email_resueltos", None)
+        if btn1:
+            if self._get_impagos_pending_count("incidentes1") > 0:
+                self._start_blink("impagos_1inc", btn1, on_bg="#ffe082", on_fg="black")
+            else:
+                self._stop_blink("impagos_1inc")
+        if btn2:
+            if self._get_impagos_pending_count("incidentes2") > 0:
+                self._start_blink("impagos_2inc", btn2, on_bg="#ffe082", on_fg="black")
+            else:
+                self._stop_blink("impagos_2inc")
+        if btnr:
+            if self._get_impagos_pending_count("resueltos") > 0:
+                self._start_blink("impagos_resueltos", btnr, on_bg="#c8e6c9", on_fg="black")
+            else:
+                self._stop_blink("impagos_resueltos")
+
     def refrescar_prestamos_tree(self):
         if not hasattr(self, "tree_prestamos"):
             return
@@ -2058,9 +2228,30 @@ class ResamaniaApp(tk.Tk):
         actions.pack(fill="x", pady=6)
         tk.Button(actions, text="Abrir WhatsApp", command=self.abrir_whatsapp_impagos, bg="#8bc34a", fg="black").pack(side="left", padx=5)
         tk.Button(actions, text="Copiar email", command=self.copiar_email_impagos).pack(side="left", padx=5)
-        tk.Button(actions, text="Enviar email (1Inc)", command=lambda: self.enviar_email_impagos("1inc"), bg="#ffd54f", fg="black").pack(side="left", padx=5)
-        tk.Button(actions, text="Enviar email (2+ inc)", command=lambda: self.enviar_email_impagos("2inc"), bg="#ff8a65", fg="black").pack(side="left", padx=5)
-        tk.Button(actions, text="Enviar email resueltos", command=self.enviar_email_resueltos, bg="#81c784", fg="black").pack(side="left", padx=5)
+        self.btn_impagos_email_1 = tk.Button(
+            actions,
+            text="Enviar email (1Inc)",
+            command=lambda: self.enviar_email_impagos("1inc"),
+            bg="#ffd54f",
+            fg="black",
+        )
+        self.btn_impagos_email_1.pack(side="left", padx=5)
+        self.btn_impagos_email_2 = tk.Button(
+            actions,
+            text="Enviar email (2+ inc)",
+            command=lambda: self.enviar_email_impagos("2inc"),
+            bg="#ff8a65",
+            fg="black",
+        )
+        self.btn_impagos_email_2.pack(side="left", padx=5)
+        self.btn_impagos_email_resueltos = tk.Button(
+            actions,
+            text="Enviar email resueltos",
+            command=self.enviar_email_resueltos,
+            bg="#81c784",
+            fg="black",
+        )
+        self.btn_impagos_email_resueltos.pack(side="left", padx=5)
 
         cols = ["codigo", "nombre", "apellidos", "email", "movil", "incidentes", "email_enviado", "fecha_envio", "historial_email", "reincidente", "fecha_export"]
         table = tk.Frame(frm)
@@ -2184,6 +2375,7 @@ class ResamaniaApp(tk.Tk):
                 values[9] = "SI" if values[9] else "NO"
                 values[8] = values[8] or ""
             self.tree_impagos.insert("", "end", values=values, iid=str(r[0]))
+        self._update_impagos_blinks()
 
     def _get_impagos_selected(self):
         sel = self.tree_impagos.selection()
@@ -4114,6 +4306,7 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
         for email in set(emails):
             self.felicitaciones_enviadas[email] = current_year
         self.guardar_felicitaciones()
+        self.update_blink_states()
 
     def enviar_cambio_turno(self):
         """
@@ -4324,6 +4517,11 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
             mail.Body = "Adjunto listado de clientes Avanza Fit (martes-lunes)."
             mail.Attachments.Add(tmp_path)
             mail.Display()
+            if not messagebox.askyesno("Confirmacion", "Ha enviado el email?", parent=self):
+                return
+            self.avanza_fit_envios["last_sent_date"] = datetime.now().date().isoformat()
+            self.guardar_avanza_fit_envios()
+            self.update_blink_states()
             messagebox.showinfo("Borrador creado", "Outlook se abrió con el archivo de Avanza Fit adjunto.")
         except Exception as e:
             messagebox.showerror(
