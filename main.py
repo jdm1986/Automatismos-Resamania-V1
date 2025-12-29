@@ -2570,27 +2570,55 @@ class ResamaniaApp(tk.Tk):
         wa = "https://wa.me/34681872664"
         wa_link = f'<a href="{wa}">{wa}</a>'
         if plantilla == "1inc":
-            texto = "<br>".join(
+            texto = "".join(
                 [
-                    "Hola! Tienes un recibo pendiente de pago y el torno no permitira el acceso.",
-                    "Si vienes de 6 a 9 am (horario sin atencion comercial), te recomendamos pasar por recepcion a partir de las 9 am para solucionarlo lo antes posible.",
-                    "Puedes abonar en efectivo o con tarjeta, incluso abonarlo desde la propia aplicacion. Aqui te mostramos como mas abajo.",
-                    "Recuerda: puedes anticipar el pago entre 5 y 15 dias antes de tu siguiente dia de pago que siempre podras consultar en tu APP Fitness Park.",
-                    f"Dudasu PREGUNTANOS al whatsapp ({wa_link}) o contestando este email.",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "\N{WAVING HAND SIGN} \u00a1Hola! Tienes un recibo pendiente de pago y el torno no permitir\u00e1 el acceso \N{CRYING FACE}",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "\N{SMALL ORANGE DIAMOND} Si vienes de 6 a 9 am (horario sin atenci\u00f3n comercial), te recomendamos pasar por recepci\u00f3n a partir de las 9 am para solucionarlo lo antes posible \N{SLIGHTLY SMILING FACE}",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "\N{SMALL ORANGE DIAMOND} Puedes abonar en efectivo \N{BANKNOTE WITH EURO SIGN} o con tarjeta \N{CREDIT CARD}, incluso abonarlo desde la propia aplicaci\u00f3n. Aqu\u00ed te mostramos c\u00f3mo m\u00e1s abajo.",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "\N{SPIRAL CALENDAR PAD} Recuerda: puedes anticipar el pago entre 5 y 15 d\u00edas antes de tu siguiente d\u00eda de pago que siempre podr\u00e1s consultar en tu APP Fitness Park.",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    f"\N{MOBILE PHONE} \u00bfDudas? PREG\u00daNTANOS al WhatsApp ({wa_link}) o contestando este email.",
+                    "</p>",
                 ]
             )
         else:
-            texto = "<br>".join(
+            texto = "".join(
                 [
-                    "Hemos detectado que actualmente tienes 2 recibos o mas pendientes en tu cuenta de socio/a.",
-                    "Queremos ayudarte a regularizar tu situacion lo antes posible para que puedas seguir disfrutando de todas las instalaciones sin inconvenientes, evitando que el sistema derive tu caso a la empresa de recobros PayPymes.",
-                    "Opciones para abonar:",
-                    "Tarjeta o efectivo en recepcion.",
-                    "Directamente desde tu APP Fitness Park, en 'Espacio de cliente' -> 'Pagos'. (Te mostramos como mas abajo)",
-                    "Aviso importante: En caso de que se genere un tercer recibo impagado, desde el club dejaremos de emitir advertencias y tu expediente el sistema lo derivara directamente a nuestra empresa colaboradora de recobros Paypymes, que se pondra en contacto contigo para gestionar la deuda.",
-                    "Recuerda: puedes anticipar el pago entre 5 y 15 dias antes de tu siguiente dia de pago que siempre podras consultar en tu APP Fitness Park, en el icono espacio de cliente y luego en el apartado 'PAGOS'.",
-                    "Te animamos a ponerte al dia lo antes posible para evitar cualquier gestion externa y que todo siga con normalidad. Estamos a tu disposicion en recepcion para cualquier duda.",
-                    f"Dudasu PREGUNTANOS por whatsapp ({wa_link}) o contestando este email.",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "Hemos detectado que actualmente tienes 2 recibos o m\u00e1s pendientes en tu cuenta de socio/a.",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "Queremos ayudarte a regularizar tu situaci\u00f3n lo antes posible para que puedas seguir disfrutando de todas las instalaciones sin inconvenientes, evitando que el sistema derive tu caso a la empresa de recobros PayPymes.",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "\N{ELECTRIC LIGHT BULB} Opciones para abonar:",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "\N{CREDIT CARD} Tarjeta o \N{BANKNOTE WITH EURO SIGN} efectivo en recepci\u00f3n.",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "\N{MOBILE PHONE} Directamente desde tu APP Fitness Park, en \"Espacio de cliente\" -> \"Pagos\". (Te mostramos c\u00f3mo m\u00e1s abajo)",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "\N{WARNING SIGN} Aviso importante: En caso de que se genere un tercer recibo impagado, desde el club dejaremos de emitir advertencias y tu expediente el sistema lo derivar\u00e1 directamente a nuestra empresa colaboradora de recobros PayPymes, que se pondr\u00e1 en contacto contigo para gestionar la deuda.",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "\N{SPIRAL CALENDAR PAD} Recuerda: puedes anticipar el pago entre 5 y 15 d\u00edas antes de tu siguiente d\u00eda de pago que siempre podr\u00e1s consultar en tu APP Fitness Park, en el icono espacio de cliente y luego en el apartado \"PAGOS\".",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    "\N{PERSON WITH FOLDED HANDS} Te animamos a ponerte al d\u00eda lo antes posible para evitar cualquier gesti\u00f3n externa y que todo siga con normalidad. Estamos a tu disposici\u00f3n en recepci\u00f3n para cualquier duda.",
+                    "</p>",
+                    "<p style=\"margin:0 0 10px 0;\">",
+                    f"\N{MOBILE PHONE} \u00bfDudas? PREG\u00daNTANOS por WhatsApp ({wa_link}) o contestando este email.",
+                    "</p>",
                 ]
             )
         return (
