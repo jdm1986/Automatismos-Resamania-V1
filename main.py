@@ -9,7 +9,7 @@ import unicodedata
 import time
 import uuid
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 import urllib.parse
 import webbrowser
@@ -80,6 +80,10 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_socios_encontrado = None
         self.incidencias_socios_filtro_codigo = None
         self.incidencias_filtro_estado = "TODAS"
+        self.objetos_taquillas_file = os.path.join("data", "objetos_taquillas.json")
+        self.objetos_taquillas = []
+        self.objetos_taquillas_blink_job = None
+        self.objetos_taquillas_blink_on = False
 
         # Felicitaciones (persistencia anual)
         self.felicitaciones_file = os.path.join("data", "felicitaciones.json")
@@ -142,6 +146,7 @@ class ResamaniaApp(tk.Tk):
         self.cargar_clientes_ext()
         self.cargar_prestamos_json()
         self.cargar_incidencias_socios()
+        self.cargar_objetos_taquillas()
         self.cargar_felicitaciones()
         self.cargar_avanza_fit_envios()
         self.cargar_staff()
@@ -232,6 +237,14 @@ class ResamaniaApp(tk.Tk):
         tk.Button(self.gestion_clientes_frame, text="IR A PRESTAMOS", command=lambda: self.notebook.select(self.tabs.get("Prestamos")), bg="#ff9800", fg="black").pack(side=tk.LEFT, padx=5)
         tk.Button(self.gestion_clientes_frame, text="IR A IMPAGOS", command=self.ir_a_impagos, bg="#ff6b6b", fg="black").pack(side=tk.LEFT, padx=5)
         tk.Button(self.gestion_clientes_frame, text="INCIDENCIAS SOCIOS", command=lambda: self.notebook.select(self.tabs.get("Incidencias Socios")), bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=5)
+        self.btn_objetos_taquillas = tk.Button(
+            self.gestion_clientes_frame,
+            text="OBJETOS TAQUILLAS",
+            command=lambda: self.notebook.select(self.tabs.get("Objetos Taquillas")),
+            bg="#ffcc80",
+            fg="black",
+        )
+        self.btn_objetos_taquillas.pack(side=tk.LEFT, padx=5)
 
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("Arial", 9, "bold"), padding=[24, 6], anchor="w")
@@ -256,6 +269,7 @@ class ResamaniaApp(tk.Tk):
             "Impagos": "#ff6b6b",
             "Incidencias Club": "#424242",
             "Incidencias Socios": "#9e9e9e",
+            "Objetos Taquillas": "#ffe0b2",
             "Staff": "#9e9e9e",
         }
         self.tab_icons = {}
@@ -276,7 +290,7 @@ class ResamaniaApp(tk.Tk):
             "Salidas PMR No Autorizadas", "Morosos Accediendo",
             "Socios Ultimate", "Socios Yanga",
             "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff"
-        ]:
+        ] + ["Objetos Taquillas"]:
             tab = ttk.Frame(self.notebook)
             color = tab_colors.get(tab_name, "#cccccc")
             icon = tk.PhotoImage(width=14, height=14)
@@ -292,6 +306,8 @@ class ResamaniaApp(tk.Tk):
                 self.create_prestamos_tab(tab)
             elif tab_name == "Incidencias Socios":
                 self.create_incidencias_socios_tab(tab)
+            elif tab_name == "Objetos Taquillas":
+                self.create_objetos_taquillas_tab(tab)
             elif tab_name == "Staff":
                 self.create_staff_tab(tab)
             elif tab_name == "Impagos":
@@ -1988,6 +2004,364 @@ class ResamaniaApp(tk.Tk):
         tab.tree = tree
         self.refrescar_incidencias_socios_tree()
 
+    def cargar_objetos_taquillas(self):
+        try:
+            if os.path.exists(self.objetos_taquillas_file):
+                with open(self.objetos_taquillas_file, "r", encoding="utf-8") as f:
+                    self.objetos_taquillas = json.load(f)
+            else:
+                self.objetos_taquillas = []
+            changed = False
+            for item in self.objetos_taquillas:
+                if "id" not in item:
+                    item["id"] = uuid.uuid4().hex
+                    changed = True
+                if "reporte_path" not in item:
+                    item["reporte_path"] = ""
+                    changed = True
+                if "retiradas" not in item:
+                    item["retiradas"] = "NO"
+                    changed = True
+                if "fecha_retirada" not in item:
+                    item["fecha_retirada"] = ""
+                    changed = True
+                if "fecha_eliminadas" not in item:
+                    item["fecha_eliminadas"] = ""
+                    changed = True
+                if "staff_elimina" not in item:
+                    item["staff_elimina"] = ""
+                    changed = True
+            if changed:
+                self.guardar_objetos_taquillas()
+        except Exception:
+            self.objetos_taquillas = []
+        if hasattr(self, "tree_objetos_taquillas"):
+            self.refrescar_objetos_taquillas_tree()
+        self._update_taquillas_blink()
+
+    def guardar_objetos_taquillas(self):
+        try:
+            os.makedirs(os.path.dirname(self.objetos_taquillas_file), exist_ok=True)
+            with open(self.objetos_taquillas_file, "w", encoding="utf-8") as f:
+                json.dump(self.objetos_taquillas, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _taquillas_parse_dt(self, value):
+        try:
+            return datetime.strptime(str(value or ""), "%d/%m/%Y %H:%M")
+        except Exception:
+            return None
+
+    def _taquillas_now_str(self):
+        return datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    def _taquillas_due_str(self, base_dt):
+        return base_dt.strftime("%d/%m/%Y %H:%M")
+
+    def _taquillas_get_overdue_ids(self):
+        now = datetime.now()
+        overdue = []
+        for item in self.objetos_taquillas:
+            if item.get("fecha_retirada") or item.get("fecha_eliminadas"):
+                continue
+            fin = self._taquillas_parse_dt(item.get("fecha_fin"))
+            if fin and fin <= now:
+                overdue.append(item.get("id"))
+        return overdue
+
+    def _start_taquillas_row_blink(self):
+        if self.objetos_taquillas_blink_job:
+            return
+
+        def toggle():
+            self.objetos_taquillas_blink_on = not self.objetos_taquillas_blink_on
+            self.refrescar_objetos_taquillas_tree()
+            self.objetos_taquillas_blink_job = self.after(self.blink_interval_ms, toggle)
+
+        toggle()
+
+    def _stop_taquillas_row_blink(self):
+        if self.objetos_taquillas_blink_job:
+            try:
+                self.after_cancel(self.objetos_taquillas_blink_job)
+            except Exception:
+                pass
+        self.objetos_taquillas_blink_job = None
+        self.objetos_taquillas_blink_on = False
+
+    def _update_taquillas_blink(self):
+        overdue_ids = self._taquillas_get_overdue_ids()
+        btn = getattr(self, "btn_objetos_taquillas", None)
+        if overdue_ids:
+            if btn:
+                self._start_blink("objetos_taquillas_btn", btn, on_bg="#ffe082", on_fg="black")
+            self._start_taquillas_row_blink()
+        else:
+            self._stop_blink("objetos_taquillas_btn")
+            self._stop_taquillas_row_blink()
+
+    def _taquillas_select_vestuario(self, default=None):
+        opciones = ["MASCULINO", "FEMENINO"]
+        win = tk.Toplevel(self)
+        win.title("Vestuario")
+        win.transient(self)
+        win.resizable(False, False)
+        tk.Label(win, text="Vestuario:").pack(padx=10, pady=6)
+        var = tk.StringVar(value=default or opciones[0])
+        combo = ttk.Combobox(win, values=opciones, textvariable=var, state="readonly", width=20)
+        combo.pack(padx=10, pady=6)
+        combo.focus_set()
+        res = {"value": None}
+
+        def aceptar():
+            res["value"] = var.get()
+            win.destroy()
+
+        btn = tk.Button(win, text="Aceptar", command=aceptar)
+        btn.pack(pady=6)
+        win.bind("<Return>", lambda _e: aceptar())
+        win.bind("<Escape>", lambda _e: win.destroy())
+        self._incidencias_center_window(win)
+        win.grab_set()
+        win.wait_window()
+        return res["value"]
+
+    def _taquillas_nuevo_registro(self):
+        staff = self._staff_select("Taquillas", "Que staff va a hacer el registro?")
+        if not staff:
+            return
+        vestuario = self._taquillas_select_vestuario()
+        if not vestuario:
+            return
+        taquilla = self._incidencias_prompt_text("Taquillas", "Nº taquilla:")
+        if taquilla is None:
+            return
+        bolsa = self._incidencias_prompt_text("Taquillas", "Nº bolsa asignada:")
+        if bolsa is None:
+            return
+        reporte_path = self._incidencias_pedir_reporte_visual()
+        now = datetime.now()
+        fecha_extraccion = self._taquillas_due_str(now)
+        fecha_fin = self._taquillas_due_str(now + timedelta(days=7))
+        item = {
+            "id": uuid.uuid4().hex,
+            "vestuario": vestuario,
+            "taquilla": taquilla,
+            "bolsa": bolsa,
+            "fecha_extraccion": fecha_extraccion,
+            "staff_extrae": self._staff_display_name(staff),
+            "retiradas": "NO",
+            "socio": "",
+            "fecha_retirada": "",
+            "fecha_fin": fecha_fin,
+            "fecha_eliminadas": "",
+            "staff_elimina": "",
+            "reporte_path": reporte_path or "",
+        }
+        self.objetos_taquillas.append(item)
+        self.guardar_objetos_taquillas()
+        self.refrescar_objetos_taquillas_tree()
+        self._update_taquillas_blink()
+
+    def _taquillas_modificar_registro(self, item_id):
+        item = next((i for i in self.objetos_taquillas if i.get("id") == item_id), None)
+        if not item:
+            return
+        staff = self._staff_select("Taquillas", "Que staff actualiza el registro?")
+        if not staff:
+            return
+        vestuario = self._taquillas_select_vestuario(item.get("vestuario"))
+        if not vestuario:
+            return
+        taquilla = self._incidencias_prompt_text("Taquillas", "Nº taquilla:", item.get("taquilla", ""))
+        if taquilla is None:
+            return
+        bolsa = self._incidencias_prompt_text("Taquillas", "Nº bolsa asignada:", item.get("bolsa", ""))
+        if bolsa is None:
+            return
+        item["staff_extrae"] = self._staff_display_name(staff)
+        item["vestuario"] = vestuario
+        item["taquilla"] = taquilla
+        item["bolsa"] = bolsa
+        if messagebox.askyesno("Reporte visual", "Desea cambiar el reporte visual?", parent=self):
+            nuevo = self._incidencias_pedir_reporte_visual()
+            if nuevo:
+                anterior = item.get("reporte_path")
+                if anterior and os.path.exists(anterior):
+                    try:
+                        os.remove(anterior)
+                    except Exception:
+                        pass
+                item["reporte_path"] = nuevo
+        self.guardar_objetos_taquillas()
+        self.refrescar_objetos_taquillas_tree()
+        self._update_taquillas_blink()
+
+    def _taquillas_eliminar_registro(self, item_id):
+        item = next((i for i in self.objetos_taquillas if i.get("id") == item_id), None)
+        if not item:
+            return
+        if not messagebox.askyesno("Eliminar registro", "Estas seguro de eliminar este registro?", parent=self):
+            return
+        reporte = item.get("reporte_path")
+        if reporte and os.path.exists(reporte):
+            try:
+                os.remove(reporte)
+            except Exception:
+                pass
+        self.objetos_taquillas = [i for i in self.objetos_taquillas if i.get("id") != item_id]
+        self.guardar_objetos_taquillas()
+        self.refrescar_objetos_taquillas_tree()
+        self._update_taquillas_blink()
+
+    def _taquillas_ver_reporte(self, item_id):
+        item = next((i for i in self.objetos_taquillas if i.get("id") == item_id), None)
+        if not item:
+            return
+        reporte = item.get("reporte_path", "")
+        self._incidencias_ver_reporte(reporte)
+
+    def _taquillas_eliminar_pertenencias(self, item_id):
+        item = next((i for i in self.objetos_taquillas if i.get("id") == item_id), None)
+        if not item:
+            return
+        staff = self._staff_select("Taquillas", "Que staff elimina las pertenencias?")
+        if not staff:
+            return
+        item["staff_elimina"] = self._staff_display_name(staff)
+        item["fecha_eliminadas"] = self._taquillas_now_str()
+        item["retiradas"] = "NO"
+        self.guardar_objetos_taquillas()
+        self.refrescar_objetos_taquillas_tree()
+        self._update_taquillas_blink()
+
+    def _taquillas_entregar_pertenencias(self, item_id):
+        item = next((i for i in self.objetos_taquillas if i.get("id") == item_id), None)
+        if not item:
+            return
+        staff = self._staff_select("Taquillas", "Que staff entrega las pertenencias?")
+        if not staff:
+            return
+        socio = self._incidencias_prompt_text("Taquillas", "Numero de socio:")
+        if socio is None:
+            return
+        item["staff_elimina"] = self._staff_display_name(staff)
+        item["socio"] = socio
+        item["retiradas"] = "SI"
+        item["fecha_retirada"] = self._taquillas_now_str()
+        self.guardar_objetos_taquillas()
+        self.refrescar_objetos_taquillas_tree()
+        self._update_taquillas_blink()
+
+    def refrescar_objetos_taquillas_tree(self):
+        if not hasattr(self, "tree_objetos_taquillas"):
+            return
+        tree = self.tree_objetos_taquillas
+        tree.delete(*tree.get_children())
+        overdue_ids = set(self._taquillas_get_overdue_ids())
+        blink_on = self.objetos_taquillas_blink_on
+        for item in sorted(self.objetos_taquillas, key=lambda i: i.get("fecha_extraccion", ""), reverse=True):
+            tag = ""
+            if item.get("id") in overdue_ids:
+                tag = "overdue_on" if blink_on else "overdue_off"
+            values = [
+                item.get("vestuario", ""),
+                item.get("taquilla", ""),
+                item.get("bolsa", ""),
+                item.get("fecha_extraccion", ""),
+                item.get("staff_extrae", ""),
+                item.get("retiradas", ""),
+                item.get("socio", ""),
+                item.get("fecha_retirada", ""),
+                item.get("fecha_fin", ""),
+                item.get("fecha_eliminadas", ""),
+                item.get("staff_elimina", ""),
+            ]
+            tree.insert("", "end", iid=item.get("id"), values=values, tags=(tag,) if tag else ())
+
+    def create_objetos_taquillas_tab(self, tab):
+        frm = tk.Frame(tab)
+        frm.pack(fill="both", expand=True, padx=10, pady=10)
+
+        top = tk.Frame(frm)
+        top.pack(fill="x", pady=4)
+        tk.Button(top, text="NUEVO REGISTRO", command=self._taquillas_nuevo_registro, bg="#ffcc80", fg="black").pack(side="left", padx=5)
+
+        cols = [
+            "vestuario",
+            "taquilla",
+            "bolsa",
+            "fecha_extraccion",
+            "staff_extrae",
+            "retiradas",
+            "socio",
+            "fecha_retirada",
+            "fecha_fin",
+            "fecha_eliminadas",
+            "staff_elimina",
+        ]
+        table = tk.Frame(frm)
+        table.pack(fill="both", expand=True)
+        table.rowconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
+        tree = ttk.Treeview(table, columns=cols, show="headings")
+        headings = {
+            "vestuario": "VESTUARIO",
+            "taquilla": "Nº TAQUILLA",
+            "bolsa": "Nº BOLSA ASIGNADA",
+            "fecha_extraccion": "DIA DE EXTRACCION",
+            "staff_extrae": "QUE STAFF EXTRAE?",
+            "retiradas": "PERTENENCIAS RETIRADAS POR SOCIO?",
+            "socio": "Nº SOCIO",
+            "fecha_retirada": "FECHA RETIRADA POR SOCIO",
+            "fecha_fin": "FECHA FIN PARA ELIMINAR",
+            "fecha_eliminadas": "FECHA PERTENENCIAS ELIMINADAS",
+            "staff_elimina": "STAFF QUE ELIMINA O DEVUELVE",
+        }
+        for c in cols:
+            tree.heading(c, text=headings.get(c, c))
+            width = 140
+            if c in ("fecha_extraccion", "fecha_retirada", "fecha_fin", "fecha_eliminadas"):
+                width = 165
+            elif c in ("vestuario", "taquilla", "bolsa", "socio"):
+                width = 120
+            elif c in ("staff_extrae", "staff_elimina"):
+                width = 170
+            elif c in ("retiradas",):
+                width = 210
+            tree.column(c, anchor="center", width=width, stretch=True)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vscroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
+        vscroll.grid(row=0, column=1, sticky="ns")
+        hscroll = ttk.Scrollbar(table, orient="horizontal", command=tree.xview)
+        hscroll.grid(row=1, column=0, sticky="ew")
+        tree.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+        tree.bind("<Control-c>", lambda e: self.copiar_celda(e, tree))
+        tree.tag_configure("overdue_on", background="#ffd6d6")
+        tree.tag_configure("overdue_off", background="#ffecec")
+
+        def on_right_click(event):
+            row = tree.identify_row(event.y)
+            if not row:
+                return
+            tree.selection_set(row)
+            menu = tk.Menu(tree, tearoff=0)
+            menu.add_command(label="Eliminar registro", command=lambda: self._taquillas_eliminar_registro(row))
+            menu.add_command(label="Modificar registro", command=lambda: self._taquillas_modificar_registro(row))
+            menu.add_command(label="Ver reporte grafico", command=lambda: self._taquillas_ver_reporte(row))
+            menu.add_separator()
+            menu.add_command(label="Eliminar pertenencias", command=lambda: self._taquillas_eliminar_pertenencias(row))
+            menu.add_command(label="Entregar pertenencias", command=lambda: self._taquillas_entregar_pertenencias(row))
+            menu.add_separator()
+            menu.add_command(label="Copiar", command=lambda: self.copiar_celda(event, tree))
+            menu.post(event.x_root, event.y_root)
+
+        tree.bind("<Button-3>", on_right_click)
+        self.tree_objetos_taquillas = tree
+        tab.tree = tree
+        self.refrescar_objetos_taquillas_tree()
+
     def cargar_clientes_ext(self):
         try:
             if os.path.exists(self.clientes_ext_file):
@@ -2097,6 +2471,7 @@ class ResamaniaApp(tk.Tk):
         self._update_felicitacion_blink()
         self._update_avanza_fit_blink()
         self._update_impagos_blinks()
+        self._update_taquillas_blink()
 
     def _hay_cumpleanos_pendientes(self):
         try:
