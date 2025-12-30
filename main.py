@@ -87,6 +87,7 @@ class ResamaniaApp(tk.Tk):
         self.bajas_file = os.path.join("data", "bajas.json")
         self.bajas = []
         self.bajas_view = "TODOS"
+        self.bajas_cliente_filter = ""
         self.bajas_impagos_set = set()
 
         # Felicitaciones (persistencia anual)
@@ -2326,9 +2327,9 @@ class ResamaniaApp(tk.Tk):
             "vestuario": "VESTUARIO",
             "taquilla": "Nº TAQUILLA",
             "bolsa": "Nº BOLSA ASIGNADA",
-            "fecha_extraccion": "DIA DE EXTRACCION",
-            "staff_extrae": "QUE STAFF EXTRAE?",
-            "retiradas": "PERTENENCIAS RETIRADAS POR SOCIO?",
+            "fecha_extraccion": "DÍA DE EXTRACCIÓN",
+            "staff_extrae": "¿QUÉ STAFF EXTRAE?",
+            "retiradas": "¿PERTENENCIAS RETIRADAS POR SOCIO?",
             "socio": "Nº SOCIO",
             "fecha_retirada": "FECHA RETIRADA POR SOCIO",
             "fecha_fin": "FECHA FIN PARA ELIMINAR",
@@ -2399,6 +2400,11 @@ class ResamaniaApp(tk.Tk):
         vista_btn.configure(menu=vista_menu)
         vista_btn.pack(side="left", padx=5)
         tk.Button(top, text="METRICAS", command=self._bajas_metricas, bg="#90caf9", fg="black").pack(side="left", padx=5)
+        tk.Label(top, text="Cliente:").pack(side="left", padx=(15, 4))
+        self.bajas_buscar_entry = tk.Entry(top, width=14)
+        self.bajas_buscar_entry.pack(side="left", padx=4)
+        tk.Button(top, text="BUSCAR", command=self._bajas_buscar_cliente, bg="#e0e0e0", fg="black").pack(side="left", padx=4)
+        tk.Button(top, text="LIMPIAR", command=self._bajas_limpiar_cliente_filter, bg="#f5f5f5", fg="black").pack(side="left", padx=4)
 
         cols = [
             "staff",
@@ -2478,12 +2484,19 @@ class ResamaniaApp(tk.Tk):
             tree.selection_set(row)
             menu = tk.Menu(tree, tearoff=0)
             menu.add_command(label="Modificar estado", command=lambda: self._bajas_cambiar_estado(row))
+            menu.add_command(label="Ver motivo", command=lambda: self._bajas_ver_texto(row, "motivo", "Motivo"))
+            menu.add_command(label="Modificar motivo", command=lambda: self._bajas_editar_campo(row, "motivo", "Motivo", "Modificar motivo:"))
+            menu.add_command(
+                label="Modificar tipo de baja",
+                command=lambda: self._bajas_editar_campo(row, "tipo_baja", "Tipo de baja", "Modificar tipo de baja:"),
+            )
             menu.add_command(label="Agregar incidencia", command=lambda: self._bajas_editar_campo(row, "incidencia", "Incidencia", "Agregar incidencia:"))
             menu.add_command(label="Modificar incidencia", command=lambda: self._bajas_editar_campo(row, "incidencia", "Incidencia", "Modificar incidencia:"))
             menu.add_command(label="Ver incidencia", command=lambda: self._bajas_ver_texto(row, "incidencia", "Incidencia"))
             menu.add_command(label="Agregar solucion", command=lambda: self._bajas_editar_campo(row, "solucion", "Solucion", "Agregar solucion:"))
             menu.add_command(label="Modificar solucion", command=lambda: self._bajas_editar_campo(row, "solucion", "Solucion", "Modificar solucion:"))
             menu.add_command(label="Ver solucion", command=lambda: self._bajas_ver_texto(row, "solucion", "Solucion"))
+            menu.add_command(label="Ver solicitudes individuales", command=lambda: self._bajas_ver_solicitudes_individuales(row))
             menu.add_command(label="Agregar reporte grafico", command=lambda: self._bajas_agregar_reporte(row))
             menu.add_command(label="Eliminar reporte grafico", command=lambda: self._bajas_eliminar_reporte(row))
             menu.add_separator()
@@ -2738,6 +2751,9 @@ class ResamaniaApp(tk.Tk):
         if not codigo:
             return
         codigo = str(codigo).strip()
+        ya_existe = any(b.get("codigo", "").strip() == codigo for b in self.bajas)
+        if ya_existe:
+            messagebox.showwarning("Bajas", f"El cliente {codigo} ya tiene registros previos.")
         tipo = self._bajas_select_option(
             "Tipo de baja",
             "Tipo de baja:",
@@ -2798,6 +2814,37 @@ class ResamaniaApp(tk.Tk):
     def _bajas_set_view(self, view):
         self.bajas_view = view
         self.refrescar_bajas_tree()
+
+    def _bajas_set_cliente_filter(self, codigo):
+        self.bajas_cliente_filter = (codigo or "").strip()
+        if hasattr(self, "bajas_buscar_entry"):
+            self.bajas_buscar_entry.delete(0, "end")
+            self.bajas_buscar_entry.insert(0, self.bajas_cliente_filter)
+        self.refrescar_bajas_tree()
+
+    def _bajas_limpiar_cliente_filter(self):
+        self.bajas_cliente_filter = ""
+        if hasattr(self, "bajas_buscar_entry"):
+            self.bajas_buscar_entry.delete(0, "end")
+        self.refrescar_bajas_tree()
+
+    def _bajas_buscar_cliente(self):
+        if not hasattr(self, "bajas_buscar_entry"):
+            return
+        codigo = self.bajas_buscar_entry.get().strip()
+        if not codigo:
+            messagebox.showinfo("Bajas", "Introduce un numero de cliente.")
+            return
+        self._bajas_set_cliente_filter(codigo)
+
+    def _bajas_ver_solicitudes_individuales(self, baja_id):
+        item = next((b for b in self.bajas if b.get("id") == baja_id), None)
+        if not item:
+            return
+        codigo = item.get("codigo", "")
+        if not codigo:
+            return
+        self._bajas_set_cliente_filter(codigo)
 
     def _bajas_editar_campo(self, baja_id, field, title, prompt):
         item = next((i for i in self.bajas if i.get("id") == baja_id), None)
@@ -2904,7 +2951,11 @@ class ResamaniaApp(tk.Tk):
         tree = self.tree_bajas
         tree.delete(*tree.get_children())
         view = (self.bajas_view or "TODOS").upper()
+        cliente_filter = (self.bajas_cliente_filter or "").strip().upper()
         for item in sorted(self.bajas, key=lambda i: self._bajas_parse_dt(i.get("fecha_registro")) or datetime.min, reverse=True):
+            codigo = str(item.get("codigo", "")).strip()
+            if cliente_filter and codigo.upper() != cliente_filter:
+                continue
             estado = str(item.get("estado", "PENDIENTE")).upper()
             if view != "TODOS" and estado != view:
                 continue
