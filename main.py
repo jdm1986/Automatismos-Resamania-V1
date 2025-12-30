@@ -2321,6 +2321,7 @@ class ResamaniaApp(tk.Tk):
         table.rowconfigure(0, weight=1)
         table.columnconfigure(0, weight=1)
         tree = ttk.Treeview(table, columns=cols, show="headings")
+        tree["displaycolumns"] = cols
         headings = {
             "vestuario": "VESTUARIO",
             "taquilla": "Nº TAQUILLA",
@@ -2409,6 +2410,7 @@ class ResamaniaApp(tk.Tk):
             "tipo_baja",
             "motivo",
             "estado",
+            "reporte",
             "fecha_registro",
             "fecha_tramitacion",
             "fecha_rechazo",
@@ -2432,6 +2434,7 @@ class ResamaniaApp(tk.Tk):
             "tipo_baja": "TIPO DE BAJA",
             "motivo": "MOTIVO",
             "estado": "ESTADO",
+            "reporte": "REPORTE",
             "fecha_registro": "FECHA REGISTRO",
             "fecha_tramitacion": "FECHA TRAMITACION",
             "fecha_rechazo": "FECHA RECHAZO",
@@ -2442,16 +2445,19 @@ class ResamaniaApp(tk.Tk):
         }
         for c in cols:
             tree.heading(c, text=headings.get(c, c))
-            width = 130
+            width = 110
             if c in ("email",):
-                width = 200
-            elif c in ("motivo", "incidencia", "solucion"):
-                width = 260
-            elif c in ("fecha_registro", "fecha_tramitacion", "fecha_rechazo", "fecha_recuperacion"):
                 width = 160
-            elif c in ("tipo_baja",):
-                width = 150
+            elif c in ("motivo", "incidencia", "solucion"):
+                width = 180
+            elif c in ("fecha_registro", "fecha_tramitacion", "fecha_rechazo", "fecha_recuperacion"):
+                width = 140
+            elif c in ("tipo_baja", "devolucion_recibo"):
+                width = 140
+            elif c in ("reporte",):
+                width = 80
             tree.column(c, anchor="center", width=width, stretch=True)
+        base_widths = {c: tree.column(c, "width") for c in cols}
         tree.grid(row=0, column=0, sticky="nsew")
         vscroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
         vscroll.grid(row=0, column=1, sticky="ns")
@@ -2463,6 +2469,7 @@ class ResamaniaApp(tk.Tk):
         tree.tag_configure("tramitada", background="#d4edda")
         tree.tag_configure("recuperada", background="#d9edf7")
         tree.tag_configure("rechazada", background="#f8d7da")
+        tree.after(200, lambda: self._bajas_autofit_columns(tree, cols, base_widths))
 
         def on_right_click(event):
             row = tree.identify_row(event.y)
@@ -2473,8 +2480,12 @@ class ResamaniaApp(tk.Tk):
             menu.add_command(label="Modificar estado", command=lambda: self._bajas_cambiar_estado(row))
             menu.add_command(label="Agregar incidencia", command=lambda: self._bajas_editar_campo(row, "incidencia", "Incidencia", "Agregar incidencia:"))
             menu.add_command(label="Modificar incidencia", command=lambda: self._bajas_editar_campo(row, "incidencia", "Incidencia", "Modificar incidencia:"))
+            menu.add_command(label="Ver incidencia", command=lambda: self._bajas_ver_texto(row, "incidencia", "Incidencia"))
             menu.add_command(label="Agregar solucion", command=lambda: self._bajas_editar_campo(row, "solucion", "Solucion", "Agregar solucion:"))
             menu.add_command(label="Modificar solucion", command=lambda: self._bajas_editar_campo(row, "solucion", "Solucion", "Modificar solucion:"))
+            menu.add_command(label="Ver solucion", command=lambda: self._bajas_ver_texto(row, "solucion", "Solucion"))
+            menu.add_command(label="Agregar reporte grafico", command=lambda: self._bajas_agregar_reporte(row))
+            menu.add_command(label="Eliminar reporte grafico", command=lambda: self._bajas_eliminar_reporte(row))
             menu.add_separator()
             menu.add_command(label="Abrir chat", command=lambda: self._bajas_abrir_chat(row))
             menu.add_command(label="Enviar email", command=lambda: self._bajas_enviar_email(row))
@@ -2488,11 +2499,79 @@ class ResamaniaApp(tk.Tk):
             if row:
                 self._bajas_cambiar_estado(row)
 
+        tooltip = {"win": None}
+
+        def show_tooltip(texto, x, y):
+            if not texto:
+                return
+            if tooltip["win"] is None:
+                tip = tk.Toplevel(self)
+                tip.wm_overrideredirect(True)
+                label = tk.Label(
+                    tip,
+                    text=texto,
+                    justify="left",
+                    background="#ffffe0",
+                    relief="solid",
+                    borderwidth=1,
+                    wraplength=360,
+                )
+                label.pack(ipadx=4, ipady=2)
+                tooltip["win"] = tip
+            tooltip["win"].wm_geometry(f"+{x}+{y}")
+
+        def hide_tooltip():
+            if tooltip["win"] is not None:
+                tooltip["win"].destroy()
+                tooltip["win"] = None
+
+        def on_hover(event):
+            item = tree.identify_row(event.y)
+            if not item:
+                hide_tooltip()
+                return
+            col = tree.identify_column(event.x)
+            col_index = int(col[1:]) - 1 if col else -1
+            values = tree.item(item, "values")
+            texto = values[col_index] if col_index < len(values) else ""
+            if texto:
+                show_tooltip(str(texto), event.x_root + 12, event.y_root + 12)
+            else:
+                hide_tooltip()
+
         tree.bind("<Button-3>", on_right_click)
         tree.bind("<Double-1>", on_double_click)
+        tree.bind("<Motion>", on_hover)
+        tree.bind("<Leave>", lambda _e: hide_tooltip())
         self.tree_bajas = tree
         tab.tree = tree
         self.refrescar_bajas_tree()
+
+    def _bajas_autofit_columns(self, tree, cols, base_widths):
+        if not tree.winfo_exists():
+            return
+        available = tree.winfo_width()
+        if available <= 1:
+            tree.after(100, lambda: self._bajas_autofit_columns(tree, cols, base_widths))
+            return
+        total = sum(base_widths.get(c, 100) for c in cols)
+        if total <= 0:
+            return
+        scale = min(1.0, available / total)
+        min_width = 50
+        for c in cols:
+            base = base_widths.get(c, 100)
+            width = max(min_width, int(base * scale))
+            tree.column(c, width=width, stretch=False)
+
+    def _bajas_ver_texto(self, baja_id, field, title):
+        item = next((b for b in self.bajas if b.get("id") == baja_id), None)
+        if not item:
+            return
+        texto = (item.get(field) or "").strip()
+        if not texto:
+            texto = f"Sin {field}."
+        messagebox.showinfo(title, texto)
 
     def cargar_bajas(self):
         try:
@@ -2523,6 +2602,9 @@ class ResamaniaApp(tk.Tk):
                     changed = True
                 if "devolucion_recibo" not in item:
                     item["devolucion_recibo"] = ""
+                    changed = True
+                if "reporte_path" not in item:
+                    item["reporte_path"] = ""
                     changed = True
                 if "incidencia" not in item:
                     item["incidencia"] = ""
@@ -2656,7 +2738,11 @@ class ResamaniaApp(tk.Tk):
         if not codigo:
             return
         codigo = str(codigo).strip()
-        tipo = self._bajas_select_option("Tipo de baja", "Tipo de baja:", ["CON PERMANENCIA", "SIN PERMANENCIA", "DESISTIMIENTO"])
+        tipo = self._bajas_select_option(
+            "Tipo de baja",
+            "Tipo de baja:",
+            ["CON PERMANENCIA", "SIN PERMANENCIA", "DESISTIMIENTO", "DESISTIMIENTO + DEVOLUCION"],
+        )
         if not tipo:
             return
         motivo = self._bajas_select_option(
@@ -2676,6 +2762,11 @@ class ResamaniaApp(tk.Tk):
             inc = self._incidencias_prompt_text("Incidencia", "Describe la incidencia:")
             if inc:
                 incidencia = inc.strip()
+        reporte_path = ""
+        if messagebox.askyesno("Reporte grafico", "Desea agregar reporte grafico?", parent=self):
+            nuevo = self._incidencias_pedir_reporte_visual()
+            if nuevo:
+                reporte_path = nuevo
 
         info = self._bajas_buscar_cliente_info(codigo)
         now_str = self._bajas_now_str()
@@ -2697,6 +2788,7 @@ class ResamaniaApp(tk.Tk):
             "devolucion_recibo": "SI" if codigo in self.bajas_impagos_set else "NO",
             "incidencia": incidencia,
             "solucion": "",
+            "reporte_path": reporte_path,
         }
         registro["movil"] = self._normalizar_movil(registro.get("movil", ""))
         self.bajas.append(registro)
@@ -2757,6 +2849,30 @@ class ResamaniaApp(tk.Tk):
             return
         webbrowser.open(f"https://wa.me/{movil}")
 
+    def _bajas_agregar_reporte(self, baja_id):
+        item = next((i for i in self.bajas if i.get("id") == baja_id), None)
+        if not item:
+            return
+        nuevo = self._incidencias_pedir_reporte_visual()
+        if not nuevo:
+            return
+        item["reporte_path"] = nuevo
+        self.guardar_bajas()
+        self.refrescar_bajas_tree()
+
+    def _bajas_eliminar_reporte(self, baja_id):
+        item = next((i for i in self.bajas if i.get("id") == baja_id), None)
+        if not item:
+            return
+        if not item.get("reporte_path"):
+            messagebox.showwarning("Reporte", "No hay reporte grafico.")
+            return
+        if not messagebox.askyesno("Reporte", "Eliminar el reporte grafico?", parent=self):
+            return
+        item["reporte_path"] = ""
+        self.guardar_bajas()
+        self.refrescar_bajas_tree()
+
     def _bajas_enviar_email(self, baja_id):
         item = next((i for i in self.bajas if i.get("id") == baja_id), None)
         if not item:
@@ -2811,6 +2927,7 @@ class ResamaniaApp(tk.Tk):
                 item.get("tipo_baja", ""),
                 item.get("motivo", ""),
                 item.get("estado", ""),
+                "R" if item.get("reporte_path") else "",
                 item.get("fecha_registro", ""),
                 item.get("fecha_tramitacion", ""),
                 item.get("fecha_rechazo", ""),
