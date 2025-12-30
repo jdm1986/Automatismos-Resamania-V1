@@ -84,6 +84,10 @@ class ResamaniaApp(tk.Tk):
         self.objetos_taquillas = []
         self.objetos_taquillas_blink_job = None
         self.objetos_taquillas_blink_on = False
+        self.bajas_file = os.path.join("data", "bajas.json")
+        self.bajas = []
+        self.bajas_view = "TODOS"
+        self.bajas_impagos_set = set()
 
         # Felicitaciones (persistencia anual)
         self.felicitaciones_file = os.path.join("data", "felicitaciones.json")
@@ -147,6 +151,7 @@ class ResamaniaApp(tk.Tk):
         self.cargar_prestamos_json()
         self.cargar_incidencias_socios()
         self.cargar_objetos_taquillas()
+        self.cargar_bajas()
         self.cargar_felicitaciones()
         self.cargar_avanza_fit_envios()
         self.cargar_staff()
@@ -245,6 +250,13 @@ class ResamaniaApp(tk.Tk):
             fg="black",
         )
         self.btn_objetos_taquillas.pack(side=tk.LEFT, padx=5)
+        tk.Button(
+            self.gestion_clientes_frame,
+            text="GESTION BAJAS",
+            command=lambda: self.notebook.select(self.tabs.get("Gestion Bajas")),
+            bg="#b39ddb",
+            fg="black",
+        ).pack(side=tk.LEFT, padx=5)
 
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("Arial", 9, "bold"), padding=[24, 6], anchor="w")
@@ -270,6 +282,7 @@ class ResamaniaApp(tk.Tk):
             "Incidencias Club": "#424242",
             "Incidencias Socios": "#9e9e9e",
             "Objetos Taquillas": "#ffe0b2",
+            "Gestion Bajas": "#d1c4e9",
             "Staff": "#9e9e9e",
         }
         self.tab_icons = {}
@@ -290,7 +303,7 @@ class ResamaniaApp(tk.Tk):
             "Salidas PMR No Autorizadas", "Morosos Accediendo",
             "Socios Ultimate", "Socios Yanga",
             "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff"
-        ] + ["Objetos Taquillas"]:
+        ] + ["Objetos Taquillas", "Gestion Bajas"]:
             tab = ttk.Frame(self.notebook)
             color = tab_colors.get(tab_name, "#cccccc")
             icon = tk.PhotoImage(width=14, height=14)
@@ -308,6 +321,8 @@ class ResamaniaApp(tk.Tk):
                 self.create_incidencias_socios_tab(tab)
             elif tab_name == "Objetos Taquillas":
                 self.create_objetos_taquillas_tab(tab)
+            elif tab_name == "Gestion Bajas":
+                self.create_bajas_tab(tab)
             elif tab_name == "Staff":
                 self.create_staff_tab(tab)
             elif tab_name == "Impagos":
@@ -2362,6 +2377,512 @@ class ResamaniaApp(tk.Tk):
         tab.tree = tree
         self.refrescar_objetos_taquillas_tree()
 
+    # -----------------------------
+    # GESTION BAJAS
+    # -----------------------------
+    def create_bajas_tab(self, tab):
+        frm = tk.Frame(tab)
+        frm.pack(fill="both", expand=True, padx=10, pady=10)
+
+        top = tk.Frame(frm)
+        top.pack(fill="x", pady=4)
+        tk.Button(top, text="NUEVO REGISTRO", command=self._bajas_nuevo_registro, bg="#ffcc80", fg="black").pack(
+            side="left", padx=5
+        )
+        vista_btn = tk.Menubutton(top, text="VISTA", bg="#bdbdbd", fg="black")
+        vista_menu = tk.Menu(vista_btn, tearoff=0)
+        vista_menu.add_command(label="TODOS LOS REGISTROS", command=lambda: self._bajas_set_view("TODOS"))
+        vista_menu.add_command(label="TRAMITADAS", command=lambda: self._bajas_set_view("TRAMITADA"))
+        vista_menu.add_command(label="RECHAZADAS", command=lambda: self._bajas_set_view("RECHAZADA"))
+        vista_menu.add_command(label="RECUPERADAS", command=lambda: self._bajas_set_view("RECUPERADA"))
+        vista_btn.configure(menu=vista_menu)
+        vista_btn.pack(side="left", padx=5)
+        tk.Button(top, text="METRICAS", command=self._bajas_metricas, bg="#90caf9", fg="black").pack(side="left", padx=5)
+
+        cols = [
+            "staff",
+            "codigo",
+            "email",
+            "apellidos",
+            "nombre",
+            "movil",
+            "tipo_baja",
+            "motivo",
+            "estado",
+            "fecha_registro",
+            "fecha_tramitacion",
+            "fecha_rechazo",
+            "fecha_recuperacion",
+            "devolucion_recibo",
+            "incidencia",
+            "solucion",
+        ]
+        table = tk.Frame(frm)
+        table.pack(fill="both", expand=True)
+        table.rowconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
+        tree = ttk.Treeview(table, columns=cols, show="headings")
+        headings = {
+            "staff": "STAFF",
+            "codigo": "CLIENTE",
+            "email": "EMAIL",
+            "apellidos": "APELLIDOS",
+            "nombre": "NOMBRE",
+            "movil": "MOVIL",
+            "tipo_baja": "TIPO DE BAJA",
+            "motivo": "MOTIVO",
+            "estado": "ESTADO",
+            "fecha_registro": "FECHA REGISTRO",
+            "fecha_tramitacion": "FECHA TRAMITACION",
+            "fecha_rechazo": "FECHA RECHAZO",
+            "fecha_recuperacion": "FECHA RECUPERACION",
+            "devolucion_recibo": "DEVOLUCION RECIBO",
+            "incidencia": "INCIDENCIA",
+            "solucion": "SOLUCION",
+        }
+        for c in cols:
+            tree.heading(c, text=headings.get(c, c))
+            width = 130
+            if c in ("email",):
+                width = 200
+            elif c in ("motivo", "incidencia", "solucion"):
+                width = 260
+            elif c in ("fecha_registro", "fecha_tramitacion", "fecha_rechazo", "fecha_recuperacion"):
+                width = 160
+            elif c in ("tipo_baja",):
+                width = 150
+            tree.column(c, anchor="center", width=width, stretch=True)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vscroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
+        vscroll.grid(row=0, column=1, sticky="ns")
+        hscroll = ttk.Scrollbar(table, orient="horizontal", command=tree.xview)
+        hscroll.grid(row=1, column=0, sticky="ew")
+        tree.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+        tree.bind("<Control-c>", lambda e: self.copiar_celda(e, tree))
+        tree.tag_configure("pendiente", background="#ffe6cc")
+        tree.tag_configure("tramitada", background="#d4edda")
+        tree.tag_configure("recuperada", background="#d9edf7")
+        tree.tag_configure("rechazada", background="#f8d7da")
+
+        def on_right_click(event):
+            row = tree.identify_row(event.y)
+            if not row:
+                return
+            tree.selection_set(row)
+            menu = tk.Menu(tree, tearoff=0)
+            menu.add_command(label="Modificar estado", command=lambda: self._bajas_cambiar_estado(row))
+            menu.add_command(label="Agregar incidencia", command=lambda: self._bajas_editar_campo(row, "incidencia", "Incidencia", "Agregar incidencia:"))
+            menu.add_command(label="Modificar incidencia", command=lambda: self._bajas_editar_campo(row, "incidencia", "Incidencia", "Modificar incidencia:"))
+            menu.add_command(label="Agregar solucion", command=lambda: self._bajas_editar_campo(row, "solucion", "Solucion", "Agregar solucion:"))
+            menu.add_command(label="Modificar solucion", command=lambda: self._bajas_editar_campo(row, "solucion", "Solucion", "Modificar solucion:"))
+            menu.add_separator()
+            menu.add_command(label="Abrir chat", command=lambda: self._bajas_abrir_chat(row))
+            menu.add_command(label="Enviar email", command=lambda: self._bajas_enviar_email(row))
+            menu.add_separator()
+            menu.add_command(label="Eliminar registro", command=lambda: self._bajas_eliminar_registro(row))
+            menu.add_command(label="Copiar", command=lambda: self.copiar_celda(event, tree))
+            menu.post(event.x_root, event.y_root)
+
+        def on_double_click(event):
+            row = tree.identify_row(event.y)
+            if row:
+                self._bajas_cambiar_estado(row)
+
+        tree.bind("<Button-3>", on_right_click)
+        tree.bind("<Double-1>", on_double_click)
+        self.tree_bajas = tree
+        tab.tree = tree
+        self.refrescar_bajas_tree()
+
+    def cargar_bajas(self):
+        try:
+            if os.path.exists(self.bajas_file):
+                with open(self.bajas_file, "r", encoding="utf-8") as f:
+                    self.bajas = json.load(f)
+            else:
+                self.bajas = []
+            changed = False
+            for item in self.bajas:
+                if "id" not in item:
+                    item["id"] = uuid.uuid4().hex
+                    changed = True
+                if "estado" not in item:
+                    item["estado"] = "PENDIENTE"
+                    changed = True
+                if "fecha_registro" not in item:
+                    item["fecha_registro"] = ""
+                    changed = True
+                if "fecha_tramitacion" not in item:
+                    item["fecha_tramitacion"] = ""
+                    changed = True
+                if "fecha_rechazo" not in item:
+                    item["fecha_rechazo"] = ""
+                    changed = True
+                if "fecha_recuperacion" not in item:
+                    item["fecha_recuperacion"] = ""
+                    changed = True
+                if "devolucion_recibo" not in item:
+                    item["devolucion_recibo"] = ""
+                    changed = True
+                if "incidencia" not in item:
+                    item["incidencia"] = ""
+                    changed = True
+                if "solucion" not in item:
+                    item["solucion"] = ""
+                    changed = True
+            if changed:
+                self.guardar_bajas()
+        except Exception:
+            self.bajas = []
+        self._bajas_actualizar_devolucion()
+        if hasattr(self, "tree_bajas"):
+            self.refrescar_bajas_tree()
+
+    def guardar_bajas(self):
+        try:
+            os.makedirs(os.path.dirname(self.bajas_file), exist_ok=True)
+            with open(self.bajas_file, "w", encoding="utf-8") as f:
+                json.dump(self.bajas, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _bajas_now_str(self):
+        return datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    def _bajas_parse_dt(self, value):
+        try:
+            return datetime.strptime(str(value or ""), "%d/%m/%Y %H:%M")
+        except Exception:
+            return None
+
+    def _bajas_get_impagos_set(self):
+        fecha = self.impagos_last_export or self.impagos_db.get_last_export()
+        if not fecha:
+            return set()
+        try:
+            with self.impagos_db._connect() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT DISTINCT c.numero_cliente "
+                    "FROM impagos_clientes c "
+                    "JOIN impagos_eventos e ON e.cliente_id = c.id "
+                    "WHERE e.fecha_export = ?",
+                    (fecha,),
+                )
+                return {str(r[0]).strip() for r in cur.fetchall() if r and r[0]}
+        except Exception:
+            return set()
+
+    def _bajas_actualizar_devolucion(self):
+        impagos_set = self._bajas_get_impagos_set()
+        self.bajas_impagos_set = set(impagos_set)
+        changed = False
+        for item in self.bajas:
+            codigo = str(item.get("codigo", "")).strip()
+            valor = "SI" if codigo and codigo in impagos_set else "NO"
+            if item.get("devolucion_recibo") != valor:
+                item["devolucion_recibo"] = valor
+                changed = True
+        if changed:
+            self.guardar_bajas()
+
+    def _bajas_buscar_cliente_info(self, codigo):
+        codigo = str(codigo or "").strip()
+        if not codigo:
+            return {}
+        if self.resumen_df is not None:
+            cols = {self._norm(c): c for c in self.resumen_df.columns}
+            col_codigo = cols.get("NUMERO DE CLIENTE") or cols.get("NUMERO DE SOCIO")
+            col_nombre = cols.get("NOMBRE")
+            col_apellidos = cols.get("APELLIDOS")
+            col_email = cols.get("CORREO ELECTRONICO") or cols.get("EMAIL") or cols.get("CORREO")
+            col_movil = cols.get("MOVIL") or cols.get("TELEFONO") or cols.get("TELEFONO MOVIL")
+            if col_codigo:
+                df = self.resumen_df[self.resumen_df[col_codigo].astype(str).str.strip() == codigo]
+                if not df.empty:
+                    row = df.iloc[0]
+                    return {
+                        "nombre": str(row.get(col_nombre, "")).strip(),
+                        "apellidos": str(row.get(col_apellidos, "")).strip(),
+                        "email": str(row.get(col_email, "")).strip(),
+                        "movil": str(row.get(col_movil, "")).strip(),
+                    }
+        for c in self.clientes_ext:
+            if str(c.get("codigo", "")).strip() == codigo:
+                return {
+                    "nombre": str(c.get("nombre", "")).strip(),
+                    "apellidos": str(c.get("apellidos", "")).strip(),
+                    "email": str(c.get("email", "")).strip(),
+                    "movil": str(c.get("movil", "")).strip(),
+                }
+        return {}
+
+    def _bajas_select_option(self, title, prompt, opciones, width=28):
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.transient(self)
+        win.resizable(False, False)
+        tk.Label(win, text=prompt).pack(padx=10, pady=6)
+        var = tk.StringVar(value=opciones[0] if opciones else "")
+        combo = ttk.Combobox(win, values=opciones, textvariable=var, state="readonly", width=width)
+        combo.pack(padx=10, pady=6)
+        combo.focus_set()
+        res = {"value": None}
+
+        def aceptar():
+            res["value"] = var.get()
+            win.destroy()
+
+        def cancel():
+            res["value"] = None
+            win.destroy()
+
+        btns = tk.Frame(win)
+        btns.pack(pady=6)
+        tk.Button(btns, text="Aceptar", command=aceptar).pack(side="left", padx=6)
+        tk.Button(btns, text="Cancelar", command=cancel).pack(side="left", padx=6)
+        win.bind("<Return>", lambda _e: aceptar())
+        win.bind("<Escape>", lambda _e: cancel())
+        win.grab_set()
+        self._incidencias_center_window(win)
+        win.wait_window()
+        return res["value"]
+
+    def _bajas_nuevo_registro(self):
+        staff = self._staff_select("Staff", "Que staff registra?")
+        if not staff:
+            return
+        codigo = self._incidencias_prompt_text("Cliente", "Numero de cliente:")
+        if not codigo:
+            return
+        codigo = str(codigo).strip()
+        tipo = self._bajas_select_option("Tipo de baja", "Tipo de baja:", ["CON PERMANENCIA", "SIN PERMANENCIA", "DESISTIMIENTO"])
+        if not tipo:
+            return
+        motivo = self._bajas_select_option(
+            "Motivo",
+            "Motivo:",
+            ["TIEMPO", "MOTIVACION", "ECONOMICO", "TRASLADO", "INSATISFACCION", "MEDICO", "SIN MOTIVO", "OTRO"],
+        )
+        if not motivo:
+            return
+        if motivo == "OTRO":
+            otro = self._incidencias_prompt_text("Motivo", "Describe el motivo:")
+            if not otro:
+                return
+            motivo = f"OTRO: {otro.strip()}"
+        incidencia = ""
+        if messagebox.askyesno("Incidencia", "Desea agregar una incidencia?", parent=self):
+            inc = self._incidencias_prompt_text("Incidencia", "Describe la incidencia:")
+            if inc:
+                incidencia = inc.strip()
+
+        info = self._bajas_buscar_cliente_info(codigo)
+        now_str = self._bajas_now_str()
+        registro = {
+            "id": uuid.uuid4().hex,
+            "staff": self._staff_display_name(staff),
+            "codigo": codigo,
+            "email": info.get("email", ""),
+            "apellidos": info.get("apellidos", ""),
+            "nombre": info.get("nombre", ""),
+            "movil": info.get("movil", ""),
+            "tipo_baja": tipo,
+            "motivo": motivo,
+            "estado": "PENDIENTE",
+            "fecha_registro": now_str,
+            "fecha_tramitacion": "",
+            "fecha_rechazo": "",
+            "fecha_recuperacion": "",
+            "devolucion_recibo": "SI" if codigo in self.bajas_impagos_set else "NO",
+            "incidencia": incidencia,
+            "solucion": "",
+        }
+        registro["movil"] = self._normalizar_movil(registro.get("movil", ""))
+        self.bajas.append(registro)
+        self.guardar_bajas()
+        self.refrescar_bajas_tree()
+
+    def _bajas_set_view(self, view):
+        self.bajas_view = view
+        self.refrescar_bajas_tree()
+
+    def _bajas_editar_campo(self, baja_id, field, title, prompt):
+        item = next((i for i in self.bajas if i.get("id") == baja_id), None)
+        if not item:
+            return
+        nuevo = self._incidencias_prompt_text(title, prompt, item.get(field, ""))
+        if nuevo is None:
+            return
+        item[field] = nuevo.strip()
+        self.guardar_bajas()
+        self.refrescar_bajas_tree()
+
+    def _bajas_eliminar_registro(self, baja_id):
+        if not messagebox.askyesno("Eliminar", "Eliminar este registro?", parent=self):
+            return
+        self.bajas = [b for b in self.bajas if b.get("id") != baja_id]
+        self.guardar_bajas()
+        self.refrescar_bajas_tree()
+
+    def _bajas_selector_estado(self):
+        opciones = ["PENDIENTE", "TRAMITADA", "RECUPERADA", "RECHAZADA"]
+        return self._bajas_select_option("Estado", "Selecciona estado:", opciones, width=18)
+
+    def _bajas_cambiar_estado(self, baja_id):
+        item = next((i for i in self.bajas if i.get("id") == baja_id), None)
+        if not item:
+            return
+        estado = self._bajas_selector_estado()
+        if not estado:
+            return
+        item["estado"] = estado
+        now_str = self._bajas_now_str()
+        if estado == "TRAMITADA":
+            item["fecha_tramitacion"] = now_str
+        elif estado == "RECUPERADA":
+            item["fecha_recuperacion"] = now_str
+        elif estado == "RECHAZADA":
+            item["fecha_rechazo"] = now_str
+        self.guardar_bajas()
+        self.refrescar_bajas_tree()
+
+    def _bajas_abrir_chat(self, baja_id):
+        item = next((i for i in self.bajas if i.get("id") == baja_id), None)
+        if not item:
+            return
+        movil = self._normalizar_movil(item.get("movil", ""))
+        if not movil:
+            messagebox.showwarning("Chat", "El cliente no tiene movil registrado.")
+            return
+        webbrowser.open(f"https://wa.me/{movil}")
+
+    def _bajas_enviar_email(self, baja_id):
+        item = next((i for i in self.bajas if i.get("id") == baja_id), None)
+        if not item:
+            return
+        email = str(item.get("email", "")).strip()
+        if not email:
+            messagebox.showwarning("Email", "El cliente no tiene email registrado.")
+            return
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            self.clipboard_clear()
+            self.clipboard_append(email)
+            messagebox.showwarning("Outlook no disponible", "Email copiado al portapapeles.")
+            return
+        try:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            mail = outlook.CreateItem(0)
+            mail.To = email
+            mail.Subject = ""
+            mail.Body = ""
+            mail.Display()
+        except Exception as e:
+            messagebox.showerror("Email", f"No se pudo abrir Outlook.\nDetalle: {e}")
+
+    def refrescar_bajas_tree(self):
+        if not hasattr(self, "tree_bajas"):
+            return
+        tree = self.tree_bajas
+        tree.delete(*tree.get_children())
+        view = (self.bajas_view or "TODOS").upper()
+        for item in sorted(self.bajas, key=lambda i: self._bajas_parse_dt(i.get("fecha_registro")) or datetime.min, reverse=True):
+            estado = str(item.get("estado", "PENDIENTE")).upper()
+            if view != "TODOS" and estado != view:
+                continue
+            tag = ""
+            if estado == "PENDIENTE":
+                tag = "pendiente"
+            elif estado == "TRAMITADA":
+                tag = "tramitada"
+            elif estado == "RECUPERADA":
+                tag = "recuperada"
+            elif estado == "RECHAZADA":
+                tag = "rechazada"
+            values = [
+                item.get("staff", ""),
+                item.get("codigo", ""),
+                item.get("email", ""),
+                item.get("apellidos", ""),
+                item.get("nombre", ""),
+                item.get("movil", ""),
+                item.get("tipo_baja", ""),
+                item.get("motivo", ""),
+                item.get("estado", ""),
+                item.get("fecha_registro", ""),
+                item.get("fecha_tramitacion", ""),
+                item.get("fecha_rechazo", ""),
+                item.get("fecha_recuperacion", ""),
+                item.get("devolucion_recibo", ""),
+                item.get("incidencia", ""),
+                item.get("solucion", ""),
+            ]
+            tree.insert("", "end", iid=item.get("id"), values=values, tags=(tag,) if tag else ())
+
+    def _bajas_metricas(self):
+        total = len(self.bajas)
+        if total == 0:
+            messagebox.showinfo("Metricas", "No hay registros.")
+            return
+        counts_estado = {"PENDIENTE": 0, "TRAMITADA": 0, "RECUPERADA": 0, "RECHAZADA": 0}
+        counts_tipo = {}
+        counts_motivo = {}
+        devolucion_si = 0
+        devolucion_no = 0
+        for item in self.bajas:
+            estado = str(item.get("estado", "PENDIENTE")).upper()
+            counts_estado[estado] = counts_estado.get(estado, 0) + 1
+            tipo = str(item.get("tipo_baja", "")).strip().upper()
+            if tipo:
+                counts_tipo[tipo] = counts_tipo.get(tipo, 0) + 1
+            motivo = str(item.get("motivo", "")).strip().upper()
+            if motivo:
+                counts_motivo[motivo] = counts_motivo.get(motivo, 0) + 1
+            if str(item.get("devolucion_recibo", "")).strip().upper() == "SI":
+                devolucion_si += 1
+            else:
+                devolucion_no += 1
+
+        win = tk.Toplevel(self)
+        win.title("Metricas bajas")
+        win.transient(self)
+        win.resizable(False, False)
+        tk.Label(win, text="METRICAS - GESTION BAJAS", font=("Arial", 10, "bold")).pack(padx=10, pady=(10, 6))
+
+        resumen = tk.Frame(win)
+        resumen.pack(padx=10, pady=6, fill="x")
+        tk.Label(resumen, text=f"TOTAL: {total}").grid(row=0, column=0, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"PENDIENTE: {counts_estado['PENDIENTE']}").grid(row=0, column=1, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"TRAMITADA: {counts_estado['TRAMITADA']}").grid(row=0, column=2, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"RECUPERADA: {counts_estado['RECUPERADA']}").grid(row=1, column=1, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"RECHAZADA: {counts_estado['RECHAZADA']}").grid(row=1, column=2, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"DEVOLUCION RECIBO SI: {devolucion_si}").grid(row=2, column=1, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"DEVOLUCION RECIBO NO: {devolucion_no}").grid(row=2, column=2, sticky="w", padx=6, pady=2)
+
+        tk.Label(win, text="MOTIVOS", font=("Arial", 9, "bold")).pack(pady=(8, 4))
+        motivos_frame = tk.Frame(win)
+        motivos_frame.pack(padx=10, pady=(0, 8), fill="x")
+        row = 0
+        for motivo, cnt in sorted(counts_motivo.items(), key=lambda x: (-x[1], x[0])):
+            pct = int(round((cnt / total) * 100)) if total else 0
+            tk.Label(motivos_frame, text=f"{motivo}: {cnt} ({pct}%)").grid(row=row, column=0, sticky="w", padx=6, pady=1)
+            row += 1
+
+        tk.Label(win, text="TIPOS DE BAJA", font=("Arial", 9, "bold")).pack(pady=(6, 4))
+        tipos_frame = tk.Frame(win)
+        tipos_frame.pack(padx=10, pady=(0, 10), fill="x")
+        row = 0
+        for tipo, cnt in sorted(counts_tipo.items(), key=lambda x: (-x[1], x[0])):
+            pct = int(round((cnt / total) * 100)) if total else 0
+            tk.Label(tipos_frame, text=f"{tipo}: {cnt} ({pct}%)").grid(row=row, column=0, sticky="w", padx=6, pady=1)
+            row += 1
+
+        tk.Button(win, text="Cerrar", command=win.destroy).pack(pady=(0, 10))
+        self._incidencias_center_window(win)
+        win.grab_set()
+
     def cargar_clientes_ext(self):
         try:
             if os.path.exists(self.clientes_ext_file):
@@ -2715,6 +3236,8 @@ class ResamaniaApp(tk.Tk):
             self.impagos_last_export = fecha
             self.impagos_status.config(text=f"Export: {fecha} | Registros: {count}")
             self.refresh_impagos_view()
+            if hasattr(self, "bajas"):
+                self._bajas_actualizar_devolucion()
         except Exception as e:
             messagebox.showerror("Impagos", f"Error sincronizando impagos: {e}")
 
