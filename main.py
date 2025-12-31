@@ -1381,7 +1381,7 @@ class ResamaniaApp(tk.Tk):
         self.prestamo_encontrado = cliente.copy()
         self.lbl_info.config(text=f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}")
         self.lbl_perdon.config(text="")
-        messagebox.showinfo("Cliente agregado", f"Cliente {codigo} añadido como externo.")
+        messagebox.showinfo("Cliente agregado", f"Cliente {codigo} anadido como externo.")
 
     def guardar_prestamo(self, prestado_por=""):
         if not getattr(self, "prestamo_encontrado", None):
@@ -1674,13 +1674,73 @@ class ResamaniaApp(tk.Tk):
                 cliente = ext[0].copy()
                 cliente["movil"] = self._normalizar_movil(cliente.get("movil", ""))
         if not cliente:
-            messagebox.showwarning("Sin cliente", "No se encontro el cliente.")
+            resp = messagebox.askyesno(
+                "Sin cliente",
+                f"No hay cliente {codigo}. Registrar manualmente?"
+            )
+            if not resp:
+                return
+            cliente = self._socios_registrar_cliente_manual(codigo)
+            if not cliente:
+                return
+            self.nueva_incidencia_socio()
             return
         self.incidencias_socios_encontrado = cliente
         self.incidencias_socios_filtro_codigo = None
         info = f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}"
         self.lbl_incidencias_socios_info.config(text=info)
         self._socios_mostrar_boton_historial(codigo)
+
+    def _socios_registrar_cliente_manual(self, codigo=None):
+        self._bring_to_front()
+        if not codigo:
+            codigo = self._pedir_campo("Numero de cliente", "Introduce el numero de cliente:")
+            if codigo is None or not codigo.strip():
+                return None
+            codigo = codigo.strip()
+
+        if self.resumen_df is not None:
+            colmap = {self._norm(c): c for c in self.resumen_df.columns}
+            col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
+            if col_codigo:
+                if any(str(val).strip() == codigo for val in self.resumen_df[col_codigo].fillna("")):
+                    messagebox.showwarning(
+                        "No permitido",
+                        "Este cliente ya existe en RESUMEN CLIENTE y no se puede agregar manualmente."
+                    )
+                    return None
+
+        nombre = self._pedir_campo("Nombre", "Introduce el nombre:", obligatorio=True, validar_nombre=True)
+        if nombre is None:
+            return None
+        apellidos = self._pedir_campo("Apellidos", "Introduce los apellidos:")
+        if apellidos is None:
+            return None
+        email = self._pedir_campo("Email", "Introduce el email:")
+        if email is None:
+            return None
+        movil = self._pedir_campo("Movil", "Introduce el movil (opcional):", obligatorio=False) or ""
+        movil = self._normalizar_movil(movil)
+
+        cliente = {
+            "codigo": codigo,
+            "nombre": nombre.strip(),
+            "apellidos": apellidos.strip(),
+            "email": email.strip(),
+            "movil": movil.strip(),
+        }
+        self.clientes_ext = [c for c in self.clientes_ext if c.get("codigo") != codigo] + [cliente]
+        self.guardar_clientes_ext()
+        self.incidencias_socios_encontrado = cliente.copy()
+        self.incidencias_socios_filtro_codigo = None
+        info = f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}"
+        self.lbl_incidencias_socios_info.config(text=info)
+        self._socios_mostrar_boton_historial(codigo)
+        messagebox.showinfo("Cliente agregado", f"Cliente {codigo} anadido como externo.")
+        return cliente
+
+    def agregar_cliente_incidencia_socio(self):
+        self._socios_registrar_cliente_manual()
 
     def nueva_incidencia_socio(self):
         if not getattr(self, "incidencias_socios_encontrado", None):
@@ -1909,6 +1969,9 @@ class ResamaniaApp(tk.Tk):
         self.incidencia_socios_codigo = tk.Entry(top, width=14)
         self.incidencia_socios_codigo.pack(side="left", padx=5)
         tk.Button(top, text="Buscar", command=self.buscar_cliente_incidencia_socio).pack(side="left", padx=5)
+        tk.Button(top, text="AGREGAR NUEVO CLIENTE", command=self.agregar_cliente_incidencia_socio, bg="#ff7043", fg="white").pack(
+            side="left", padx=5
+        )
         tk.Button(top, text="Nueva incidencia", command=self.nueva_incidencia_socio, bg="#ffcc80", fg="black").pack(side="left", padx=5)
         vista_btn = tk.Menubutton(top, text="VISTA", bg="#bdbdbd", fg="black")
         vista_menu = tk.Menu(vista_btn, tearoff=0)
