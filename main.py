@@ -2032,11 +2032,12 @@ class ResamaniaApp(tk.Tk):
             menu.add_command(label="Copiar", command=lambda: self.copiar_celda(event, tree))
             menu.post(event.x_root, event.y_root)
 
-        tooltip = {"win": None}
+        tooltip = {"win": None, "label": None, "text": ""}
 
         def show_tooltip(texto, x, y):
             if not texto:
                 return
+            texto = str(texto)
             if tooltip["win"] is None:
                 tip = tk.Toplevel(self)
                 tip.wm_overrideredirect(True)
@@ -2051,12 +2052,19 @@ class ResamaniaApp(tk.Tk):
                 )
                 label.pack(ipadx=4, ipady=2)
                 tooltip["win"] = tip
+                tooltip["label"] = label
+                tooltip["text"] = texto
+            elif tooltip["text"] != texto and tooltip["label"] is not None:
+                tooltip["label"].config(text=texto)
+                tooltip["text"] = texto
             tooltip["win"].wm_geometry(f"+{x}+{y}")
 
         def hide_tooltip():
             if tooltip["win"] is not None:
                 tooltip["win"].destroy()
                 tooltip["win"] = None
+            tooltip["label"] = None
+            tooltip["text"] = ""
 
         def on_hover(event):
             item = tree.identify_row(event.y)
@@ -2591,7 +2599,7 @@ class ResamaniaApp(tk.Tk):
             if row:
                 self._bajas_cambiar_estado(row)
 
-        tooltip = {"win": None}
+        tooltip = {"win": None, "label": None, "text": ""}
 
         def show_tooltip(texto, x, y):
             if not texto:
@@ -2610,12 +2618,19 @@ class ResamaniaApp(tk.Tk):
                 )
                 label.pack(ipadx=4, ipady=2)
                 tooltip["win"] = tip
+                tooltip["label"] = label
+                tooltip["text"] = texto
+            elif tooltip["text"] != texto and tooltip["label"] is not None:
+                tooltip["label"].config(text=texto)
+                tooltip["text"] = texto
             tooltip["win"].wm_geometry(f"+{x}+{y}")
 
         def hide_tooltip():
             if tooltip["win"] is not None:
                 tooltip["win"].destroy()
                 tooltip["win"] = None
+            tooltip["label"] = None
+            tooltip["text"] = ""
 
         def on_hover(event):
             item = tree.identify_row(event.y)
@@ -3957,7 +3972,7 @@ class ResamaniaApp(tk.Tk):
             if row:
                 self._suspensiones_cambiar_estado(row)
 
-        tooltip = {"win": None}
+        tooltip = {"win": None, "label": None, "text": ""}
 
         def show_tooltip(texto, x, y):
             if not texto:
@@ -3976,12 +3991,19 @@ class ResamaniaApp(tk.Tk):
                 )
                 label.pack(ipadx=4, ipady=2)
                 tooltip["win"] = tip
+                tooltip["label"] = label
+                tooltip["text"] = texto
+            elif tooltip["text"] != texto and tooltip["label"] is not None:
+                tooltip["label"].config(text=texto)
+                tooltip["text"] = texto
             tooltip["win"].wm_geometry(f"+{x}+{y}")
 
         def hide_tooltip():
             if tooltip["win"] is not None:
                 tooltip["win"].destroy()
                 tooltip["win"] = None
+            tooltip["label"] = None
+            tooltip["text"] = ""
 
         def on_hover(event):
             item = tree.identify_row(event.y)
@@ -5435,7 +5457,7 @@ class ResamaniaApp(tk.Tk):
             if area:
                 self.incidencias_area_to_inc.setdefault(area, []).append(inc_id)
 
-        tooltip = {"win": None, "text": ""}
+        tooltip = {"win": None, "label": None, "text": ""}
 
         def show_tooltip(texto, x, y):
             if not texto:
@@ -5446,14 +5468,19 @@ class ResamaniaApp(tk.Tk):
                 label = tk.Label(tip, text=texto, justify="left", background="#ffffe0", relief="solid", borderwidth=1, wraplength=380)
                 label.pack(ipadx=4, ipady=2)
                 tooltip["win"] = tip
+                tooltip["label"] = label
+                tooltip["text"] = texto
+            elif tooltip["text"] != texto and tooltip["label"] is not None:
+                tooltip["label"].config(text=texto)
+                tooltip["text"] = texto
             tooltip["win"].wm_geometry(f"+{x}+{y}")
-            tooltip["text"] = texto
 
         def hide_tooltip():
             if tooltip["win"] is not None:
                 tooltip["win"].destroy()
                 tooltip["win"] = None
-                tooltip["text"] = ""
+            tooltip["label"] = None
+            tooltip["text"] = ""
 
         def copy_cell(event):
             row = tree.identify_row(event.y)
