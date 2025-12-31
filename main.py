@@ -89,6 +89,11 @@ class ResamaniaApp(tk.Tk):
         self.bajas_view = "TODOS"
         self.bajas_cliente_filter = ""
         self.bajas_impagos_set = set()
+        self.suspensiones_file = os.path.join("data", "suspensiones.json")
+        self.suspensiones = []
+        self.suspensiones_view = "TODOS"
+        self.suspensiones_cliente_filter = ""
+        self.suspensiones_impagos_set = set()
 
         # Felicitaciones (persistencia anual)
         self.felicitaciones_file = os.path.join("data", "felicitaciones.json")
@@ -153,6 +158,7 @@ class ResamaniaApp(tk.Tk):
         self.cargar_incidencias_socios()
         self.cargar_objetos_taquillas()
         self.cargar_bajas()
+        self.cargar_suspensiones()
         self.cargar_felicitaciones()
         self.cargar_avanza_fit_envios()
         self.cargar_staff()
@@ -258,6 +264,13 @@ class ResamaniaApp(tk.Tk):
             bg="#b39ddb",
             fg="black",
         ).pack(side=tk.LEFT, padx=5)
+        tk.Button(
+            self.gestion_clientes_frame,
+            text="GESTION SUSPENSIONES",
+            command=lambda: self.notebook.select(self.tabs.get("Gestion Suspensiones")),
+            bg="#c8e6c9",
+            fg="black",
+        ).pack(side=tk.LEFT, padx=5)
 
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("Arial", 9, "bold"), padding=[24, 6], anchor="w")
@@ -284,6 +297,7 @@ class ResamaniaApp(tk.Tk):
             "Incidencias Socios": "#9e9e9e",
             "Objetos Taquillas": "#ffe0b2",
             "Gestion Bajas": "#d1c4e9",
+            "Gestion Suspensiones": "#c8e6c9",
             "Staff": "#9e9e9e",
         }
         self.tab_icons = {}
@@ -304,7 +318,7 @@ class ResamaniaApp(tk.Tk):
             "Salidas PMR No Autorizadas", "Morosos Accediendo",
             "Socios Ultimate", "Socios Yanga",
             "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff"
-        ] + ["Objetos Taquillas", "Gestion Bajas"]:
+        ] + ["Objetos Taquillas", "Gestion Bajas", "Gestion Suspensiones"]:
             tab = ttk.Frame(self.notebook)
             color = tab_colors.get(tab_name, "#cccccc")
             icon = tk.PhotoImage(width=14, height=14)
@@ -324,6 +338,8 @@ class ResamaniaApp(tk.Tk):
                 self.create_objetos_taquillas_tab(tab)
             elif tab_name == "Gestion Bajas":
                 self.create_bajas_tab(tab)
+            elif tab_name == "Gestion Suspensiones":
+                self.create_suspensiones_tab(tab)
             elif tab_name == "Staff":
                 self.create_staff_tab(tab)
             elif tab_name == "Impagos":
@@ -2322,7 +2338,6 @@ class ResamaniaApp(tk.Tk):
         table.rowconfigure(0, weight=1)
         table.columnconfigure(0, weight=1)
         tree = ttk.Treeview(table, columns=cols, show="headings")
-        tree["displaycolumns"] = cols
         headings = {
             "vestuario": "VESTUARIO",
             "taquilla": "Nº TAQUILLA",
@@ -3406,6 +3421,8 @@ class ResamaniaApp(tk.Tk):
             self.refresh_impagos_view()
             if hasattr(self, "bajas"):
                 self._bajas_actualizar_devolucion()
+            if hasattr(self, "suspensiones"):
+                self._suspensiones_actualizar_devolucion()
         except Exception as e:
             messagebox.showerror("Impagos", f"Error sincronizando impagos: {e}")
 
@@ -3723,6 +3740,707 @@ class ResamaniaApp(tk.Tk):
                 self.notebook.hide(tab)
             except Exception:
                 pass
+
+    # -----------------------------
+    # GESTION SUSPENSIONES
+    # -----------------------------
+    def create_suspensiones_tab(self, tab):
+        frm = tk.Frame(tab)
+        frm.pack(fill="both", expand=True, padx=10, pady=10)
+
+        top = tk.Frame(frm)
+        top.pack(fill="x", pady=4)
+        tk.Button(top, text="NUEVO REGISTRO", command=self._suspensiones_nuevo_registro, bg="#ffcc80", fg="black").pack(
+            side="left", padx=5
+        )
+        vista_btn = tk.Menubutton(top, text="VISTA", bg="#bdbdbd", fg="black")
+        vista_menu = tk.Menu(vista_btn, tearoff=0)
+        vista_menu.add_command(label="TODOS LOS REGISTROS", command=lambda: self._suspensiones_set_view("TODOS"))
+        vista_menu.add_command(label="TRAMITADAS", command=lambda: self._suspensiones_set_view("TRAMITADA"))
+        vista_menu.add_command(label="RECHAZADAS", command=lambda: self._suspensiones_set_view("RECHAZADA"))
+        vista_menu.add_command(label="CONCLUIDAS", command=lambda: self._suspensiones_set_view("CONCLUIDA"))
+        vista_btn.configure(menu=vista_menu)
+        vista_btn.pack(side="left", padx=5)
+        tk.Label(top, text="Cliente:").pack(side="left", padx=(15, 4))
+        self.suspensiones_buscar_entry = tk.Entry(top, width=14)
+        self.suspensiones_buscar_entry.pack(side="left", padx=4)
+        tk.Button(top, text="BUSCAR", command=self._suspensiones_buscar_cliente, bg="#e0e0e0", fg="black").pack(side="left", padx=4)
+        tk.Button(top, text="LIMPIAR", command=self._suspensiones_limpiar_cliente_filter, bg="#f5f5f5", fg="black").pack(side="left", padx=4)
+
+        cols = [
+            "staff",
+            "codigo",
+            "email",
+            "apellidos",
+            "nombre",
+            "movil",
+            "motivo",
+            "estado",
+            "reporte",
+            "fecha_registro",
+            "fecha_tramitacion",
+            "fecha_rechazo",
+            "fecha_inicio_suspension",
+            "fecha_fin_suspension",
+            "fecha_concluida",
+            "devolucion_recibo",
+            "incidencia",
+            "solucion",
+        ]
+        table = tk.Frame(frm)
+        table.pack(fill="both", expand=True)
+        table.rowconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
+        tree = ttk.Treeview(table, columns=cols, show="headings")
+        headings = {
+            "staff": "STAFF",
+            "codigo": "CLIENTE",
+            "email": "EMAIL",
+            "apellidos": "APELLIDOS",
+            "nombre": "NOMBRE",
+            "movil": "MOVIL",
+            "motivo": "MOTIVO",
+            "estado": "ESTADO",
+            "reporte": "REPORTE",
+            "fecha_registro": "FECHA REGISTRO",
+            "fecha_tramitacion": "FECHA TRAMITACION",
+            "fecha_rechazo": "FECHA RECHAZO",
+            "fecha_inicio_suspension": "FECHA INICIO SUSPENSION",
+            "fecha_fin_suspension": "FECHA FIN SUSPENSION",
+            "fecha_concluida": "FECHA CONCLUIDA",
+            "devolucion_recibo": "DEVOLUCION RECIBO",
+            "incidencia": "INCIDENCIA",
+            "solucion": "SOLUCION",
+        }
+        for c in cols:
+            tree.heading(c, text=headings.get(c, c))
+            width = 110
+            if c in ("email",):
+                width = 160
+            elif c in ("motivo", "incidencia", "solucion"):
+                width = 180
+            elif c in (
+                "fecha_registro",
+                "fecha_tramitacion",
+                "fecha_rechazo",
+                "fecha_inicio_suspension",
+                "fecha_fin_suspension",
+                "fecha_concluida",
+            ):
+                width = 140
+            elif c in ("devolucion_recibo",):
+                width = 140
+            elif c in ("reporte",):
+                width = 80
+            tree.column(c, anchor="center", width=width, stretch=True)
+        base_widths = {c: tree.column(c, "width") for c in cols}
+        tree.grid(row=0, column=0, sticky="nsew")
+        vscroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
+        vscroll.grid(row=0, column=1, sticky="ns")
+        hscroll = ttk.Scrollbar(table, orient="horizontal", command=tree.xview)
+        hscroll.grid(row=1, column=0, sticky="ew")
+        tree.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+        tree.bind("<Control-c>", lambda e: self.copiar_celda(e, tree))
+        tree.tag_configure("pendiente", background="#ffe6cc")
+        tree.tag_configure("tramitada", background="#d4edda")
+        tree.tag_configure("concluida", background="#d9edf7")
+        tree.tag_configure("rechazada", background="#f8d7da")
+        tree.after(200, lambda: self._suspensiones_autofit_columns(tree, cols, base_widths))
+
+        def on_right_click(event):
+            row = tree.identify_row(event.y)
+            if not row:
+                return
+            tree.selection_set(row)
+            menu = tk.Menu(tree, tearoff=0)
+            menu.add_command(label="Modificar estado", command=lambda: self._suspensiones_cambiar_estado(row))
+            menu.add_command(label="Ver motivo", command=lambda: self._suspensiones_ver_texto(row, "motivo", "Motivo"))
+            menu.add_command(label="Modificar motivo", command=lambda: self._suspensiones_editar_campo(row, "motivo", "Motivo", "Modificar motivo:"))
+            menu.add_command(label="Agregar incidencia", command=lambda: self._suspensiones_editar_campo(row, "incidencia", "Incidencia", "Agregar incidencia:"))
+            menu.add_command(label="Modificar incidencia", command=lambda: self._suspensiones_editar_campo(row, "incidencia", "Incidencia", "Modificar incidencia:"))
+            menu.add_command(label="Ver incidencia", command=lambda: self._suspensiones_ver_texto(row, "incidencia", "Incidencia"))
+            menu.add_command(label="Agregar solucion", command=lambda: self._suspensiones_editar_campo(row, "solucion", "Solucion", "Agregar solucion:"))
+            menu.add_command(label="Modificar solucion", command=lambda: self._suspensiones_editar_campo(row, "solucion", "Solucion", "Modificar solucion:"))
+            menu.add_command(label="Ver solucion", command=lambda: self._suspensiones_ver_texto(row, "solucion", "Solucion"))
+            menu.add_command(label="Ver solicitudes individuales", command=lambda: self._suspensiones_ver_solicitudes_individuales(row))
+            menu.add_command(label="Modificar fecha inicio suspension", command=lambda: self._suspensiones_editar_campo(row, "fecha_inicio_suspension", "Fecha inicio", "Fecha inicio suspension:"))
+            menu.add_command(label="Modificar fecha fin suspension", command=lambda: self._suspensiones_editar_campo(row, "fecha_fin_suspension", "Fecha fin", "Fecha fin suspension:"))
+            menu.add_command(label="Agregar reporte grafico", command=lambda: self._suspensiones_agregar_reporte(row))
+            menu.add_command(label="Eliminar reporte grafico", command=lambda: self._suspensiones_eliminar_reporte(row))
+            menu.add_separator()
+            menu.add_command(label="Abrir chat", command=lambda: self._suspensiones_abrir_chat(row))
+            menu.add_command(label="Enviar email", command=lambda: self._suspensiones_enviar_email(row))
+            menu.add_separator()
+            menu.add_command(label="Eliminar registro", command=lambda: self._suspensiones_eliminar_registro(row))
+            menu.add_command(label="Copiar", command=lambda: self.copiar_celda(event, tree))
+            menu.post(event.x_root, event.y_root)
+
+        def on_double_click(event):
+            row = tree.identify_row(event.y)
+            if row:
+                self._suspensiones_cambiar_estado(row)
+
+        tooltip = {"win": None}
+
+        def show_tooltip(texto, x, y):
+            if not texto:
+                return
+            if tooltip["win"] is None:
+                tip = tk.Toplevel(self)
+                tip.wm_overrideredirect(True)
+                label = tk.Label(
+                    tip,
+                    text=texto,
+                    justify="left",
+                    background="#ffffe0",
+                    relief="solid",
+                    borderwidth=1,
+                    wraplength=360,
+                )
+                label.pack(ipadx=4, ipady=2)
+                tooltip["win"] = tip
+            tooltip["win"].wm_geometry(f"+{x}+{y}")
+
+        def hide_tooltip():
+            if tooltip["win"] is not None:
+                tooltip["win"].destroy()
+                tooltip["win"] = None
+
+        def on_hover(event):
+            item = tree.identify_row(event.y)
+            if not item:
+                hide_tooltip()
+                return
+            col = tree.identify_column(event.x)
+            col_index = int(col[1:]) - 1 if col else -1
+            values = tree.item(item, "values")
+            texto = values[col_index] if col_index < len(values) else ""
+            if texto:
+                show_tooltip(str(texto), event.x_root + 12, event.y_root + 12)
+            else:
+                hide_tooltip()
+
+        tree.bind("<Button-3>", on_right_click)
+        tree.bind("<Double-1>", on_double_click)
+        tree.bind("<Motion>", on_hover)
+        tree.bind("<Leave>", lambda _e: hide_tooltip())
+        self.tree_suspensiones = tree
+        tab.tree = tree
+        self.refrescar_suspensiones_tree()
+
+    def _suspensiones_autofit_columns(self, tree, cols, base_widths):
+        if not tree.winfo_exists():
+            return
+        available = tree.winfo_width()
+        if available <= 1:
+            tree.after(100, lambda: self._suspensiones_autofit_columns(tree, cols, base_widths))
+            return
+        total = sum(base_widths.get(c, 100) for c in cols)
+        if total <= 0:
+            return
+        scale = min(1.0, available / total)
+        min_width = 50
+        for c in cols:
+            base = base_widths.get(c, 100)
+            width = max(min_width, int(base * scale))
+            tree.column(c, width=width, stretch=False)
+
+    def _suspensiones_ver_texto(self, susp_id, field, title):
+        item = next((b for b in self.suspensiones if b.get("id") == susp_id), None)
+        if not item:
+            return
+        texto = (item.get(field) or "").strip()
+        if not texto:
+            texto = f"Sin {field}."
+        messagebox.showinfo(title, texto)
+
+    def cargar_suspensiones(self):
+        try:
+            if os.path.exists(self.suspensiones_file):
+                with open(self.suspensiones_file, "r", encoding="utf-8") as f:
+                    self.suspensiones = json.load(f)
+            else:
+                self.suspensiones = []
+            changed = False
+            for item in self.suspensiones:
+                if "id" not in item:
+                    item["id"] = uuid.uuid4().hex
+                    changed = True
+                if "estado" not in item:
+                    item["estado"] = "PENDIENTE"
+                    changed = True
+                if "fecha_registro" not in item:
+                    item["fecha_registro"] = ""
+                    changed = True
+                if "fecha_tramitacion" not in item:
+                    item["fecha_tramitacion"] = ""
+                    changed = True
+                if "fecha_rechazo" not in item:
+                    item["fecha_rechazo"] = ""
+                    changed = True
+                if "fecha_inicio_suspension" not in item:
+                    item["fecha_inicio_suspension"] = ""
+                    changed = True
+                if "fecha_fin_suspension" not in item:
+                    item["fecha_fin_suspension"] = ""
+                    changed = True
+                if "fecha_concluida" not in item:
+                    item["fecha_concluida"] = ""
+                    changed = True
+                if "devolucion_recibo" not in item:
+                    item["devolucion_recibo"] = ""
+                    changed = True
+                if "reporte_path" not in item:
+                    item["reporte_path"] = ""
+                    changed = True
+                if "incidencia" not in item:
+                    item["incidencia"] = ""
+                    changed = True
+                if "solucion" not in item:
+                    item["solucion"] = ""
+                    changed = True
+                if "fin_notificado" not in item:
+                    item["fin_notificado"] = "NO"
+                    changed = True
+            if changed:
+                self.guardar_suspensiones()
+        except Exception:
+            self.suspensiones = []
+        self._suspensiones_actualizar_devolucion()
+        if hasattr(self, "tree_suspensiones"):
+            self.refrescar_suspensiones_tree()
+        self._suspensiones_notificar_fin()
+
+    def guardar_suspensiones(self):
+        try:
+            os.makedirs(os.path.dirname(self.suspensiones_file), exist_ok=True)
+            with open(self.suspensiones_file, "w", encoding="utf-8") as f:
+                json.dump(self.suspensiones, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _suspensiones_now_str(self):
+        return datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    def _suspensiones_parse_dt(self, value):
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(raw, fmt)
+            except Exception:
+                continue
+        return None
+
+    def _suspensiones_get_impagos_set(self):
+        fecha = self.impagos_last_export or self.impagos_db.get_last_export()
+        if not fecha:
+            return set()
+        try:
+            with self.impagos_db._connect() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT DISTINCT c.numero_cliente "
+                    "FROM impagos_clientes c "
+                    "JOIN impagos_eventos e ON e.cliente_id = c.id "
+                    "WHERE e.fecha_export = ?",
+                    (fecha,),
+                )
+                return {str(r[0]).strip() for r in cur.fetchall() if r and r[0]}
+        except Exception:
+            return set()
+
+    def _suspensiones_actualizar_devolucion(self):
+        impagos_set = self._suspensiones_get_impagos_set()
+        self.suspensiones_impagos_set = set(impagos_set)
+        changed = False
+        for item in self.suspensiones:
+            codigo = str(item.get("codigo", "")).strip()
+            valor = "SI" if codigo and codigo in impagos_set else "NO"
+            if item.get("devolucion_recibo") != valor:
+                item["devolucion_recibo"] = valor
+                changed = True
+        if changed:
+            self.guardar_suspensiones()
+
+    def _suspensiones_buscar_cliente_info(self, codigo):
+        codigo = str(codigo or "").strip()
+        if not codigo:
+            return {}
+        if self.resumen_df is not None:
+            cols = {self._norm(c): c for c in self.resumen_df.columns}
+            col_codigo = cols.get("NUMERO DE CLIENTE") or cols.get("NUMERO DE SOCIO")
+            col_nombre = cols.get("NOMBRE")
+            col_apellidos = cols.get("APELLIDOS")
+            col_email = cols.get("CORREO ELECTRONICO") or cols.get("EMAIL") or cols.get("CORREO")
+            col_movil = cols.get("MOVIL") or cols.get("TELEFONO") or cols.get("TELEFONO MOVIL")
+            if col_codigo:
+                df = self.resumen_df[self.resumen_df[col_codigo].astype(str).str.strip() == codigo]
+                if not df.empty:
+                    row = df.iloc[0]
+                    return {
+                        "nombre": str(row.get(col_nombre, "")).strip(),
+                        "apellidos": str(row.get(col_apellidos, "")).strip(),
+                        "email": str(row.get(col_email, "")).strip(),
+                        "movil": str(row.get(col_movil, "")).strip(),
+                    }
+        for c in self.clientes_ext:
+            if str(c.get("codigo", "")).strip() == codigo:
+                return {
+                    "nombre": str(c.get("nombre", "")).strip(),
+                    "apellidos": str(c.get("apellidos", "")).strip(),
+                    "email": str(c.get("email", "")).strip(),
+                    "movil": str(c.get("movil", "")).strip(),
+                }
+        return {}
+
+    def _suspensiones_select_option(self, title, prompt, opciones, width=28):
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.transient(self)
+        win.resizable(False, False)
+        tk.Label(win, text=prompt).pack(padx=10, pady=6)
+        var = tk.StringVar(value=opciones[0] if opciones else "")
+        combo = ttk.Combobox(win, values=opciones, textvariable=var, state="readonly", width=width)
+        combo.pack(padx=10, pady=6)
+        combo.focus_set()
+        res = {"value": None}
+
+        def aceptar():
+            res["value"] = var.get()
+            win.destroy()
+
+        def cancel():
+            res["value"] = None
+            win.destroy()
+
+        btns = tk.Frame(win)
+        btns.pack(pady=6)
+        tk.Button(btns, text="Aceptar", command=aceptar).pack(side="left", padx=6)
+        tk.Button(btns, text="Cancelar", command=cancel).pack(side="left", padx=6)
+        win.bind("<Return>", lambda _e: aceptar())
+        win.bind("<Escape>", lambda _e: cancel())
+        win.grab_set()
+        self._incidencias_center_window(win)
+        win.wait_window()
+        return res["value"]
+
+    def _suspensiones_nuevo_registro(self):
+        staff = self._staff_select("Staff", "Que staff registra?")
+        if not staff:
+            return
+        codigo = self._incidencias_prompt_text("Cliente", "Numero de cliente:")
+        if not codigo:
+            return
+        codigo = str(codigo).strip()
+        ya_existe = any(b.get("codigo", "").strip() == codigo for b in self.suspensiones)
+        if ya_existe:
+            messagebox.showwarning("Suspensiones", f"El cliente {codigo} ya tiene registros previos.")
+        motivo = self._suspensiones_select_option(
+            "Motivo",
+            "Motivo:",
+            ["MEDICO", "LABORAL", "TRASLADO", "OTRO"],
+        )
+        if not motivo:
+            return
+        if motivo == "OTRO":
+            otro = self._incidencias_prompt_text("Motivo", "Describe el motivo:")
+            if not otro:
+                return
+            motivo = f"OTRO: {otro.strip()}"
+        fecha_inicio = self._incidencias_prompt_text("Suspension", "Fecha inicio suspension (dd/mm/yyyy):")
+        if not fecha_inicio:
+            return
+        fecha_fin = self._incidencias_prompt_text("Suspension", "Fecha fin suspension (dd/mm/yyyy):")
+        if not fecha_fin:
+            return
+        incidencia = ""
+        if messagebox.askyesno("Incidencia", "Desea agregar una incidencia?", parent=self):
+            inc = self._incidencias_prompt_text("Incidencia", "Describe la incidencia:")
+            if inc:
+                incidencia = inc.strip()
+        reporte_path = ""
+        if messagebox.askyesno("Reporte grafico", "Desea agregar reporte grafico?", parent=self):
+            nuevo = self._incidencias_pedir_reporte_visual()
+            if nuevo:
+                reporte_path = nuevo
+
+        info = self._suspensiones_buscar_cliente_info(codigo)
+        now_str = self._suspensiones_now_str()
+        registro = {
+            "id": uuid.uuid4().hex,
+            "staff": self._staff_display_name(staff),
+            "codigo": codigo,
+            "email": info.get("email", ""),
+            "apellidos": info.get("apellidos", ""),
+            "nombre": info.get("nombre", ""),
+            "movil": info.get("movil", ""),
+            "motivo": motivo,
+            "estado": "PENDIENTE",
+            "fecha_registro": now_str,
+            "fecha_tramitacion": "",
+            "fecha_rechazo": "",
+            "fecha_inicio_suspension": str(fecha_inicio).strip(),
+            "fecha_fin_suspension": str(fecha_fin).strip(),
+            "fecha_concluida": "",
+            "devolucion_recibo": "SI" if codigo in self.suspensiones_impagos_set else "NO",
+            "incidencia": incidencia,
+            "solucion": "",
+            "reporte_path": reporte_path,
+            "fin_notificado": "NO",
+        }
+        registro["movil"] = self._normalizar_movil(registro.get("movil", ""))
+        self.suspensiones.append(registro)
+        self.guardar_suspensiones()
+        self.refrescar_suspensiones_tree()
+
+    def _suspensiones_set_view(self, view):
+        self.suspensiones_view = view
+        self.refrescar_suspensiones_tree()
+
+    def _suspensiones_set_cliente_filter(self, codigo):
+        self.suspensiones_cliente_filter = (codigo or "").strip()
+        if hasattr(self, "suspensiones_buscar_entry"):
+            self.suspensiones_buscar_entry.delete(0, "end")
+            self.suspensiones_buscar_entry.insert(0, self.suspensiones_cliente_filter)
+        self.refrescar_suspensiones_tree()
+
+    def _suspensiones_limpiar_cliente_filter(self):
+        self.suspensiones_cliente_filter = ""
+        if hasattr(self, "suspensiones_buscar_entry"):
+            self.suspensiones_buscar_entry.delete(0, "end")
+        self.refrescar_suspensiones_tree()
+
+    def _suspensiones_buscar_cliente(self):
+        if not hasattr(self, "suspensiones_buscar_entry"):
+            return
+        codigo = self.suspensiones_buscar_entry.get().strip()
+        if not codigo:
+            messagebox.showinfo("Suspensiones", "Introduce un numero de cliente.")
+            return
+        self._suspensiones_set_cliente_filter(codigo)
+
+    def _suspensiones_ver_solicitudes_individuales(self, susp_id):
+        item = next((b for b in self.suspensiones if b.get("id") == susp_id), None)
+        if not item:
+            return
+        codigo = item.get("codigo", "")
+        if not codigo:
+            return
+        self._suspensiones_set_cliente_filter(codigo)
+
+    def _suspensiones_editar_campo(self, susp_id, field, title, prompt):
+        item = next((i for i in self.suspensiones if i.get("id") == susp_id), None)
+        if not item:
+            return
+        nuevo = self._incidencias_prompt_text(title, prompt, item.get(field, ""))
+        if nuevo is None:
+            return
+        item[field] = str(nuevo).strip()
+        self.guardar_suspensiones()
+        self.refrescar_suspensiones_tree()
+
+    def _suspensiones_eliminar_registro(self, susp_id):
+        if not messagebox.askyesno("Eliminar", "Eliminar este registro?", parent=self):
+            return
+        self.suspensiones = [b for b in self.suspensiones if b.get("id") != susp_id]
+        self.guardar_suspensiones()
+        self.refrescar_suspensiones_tree()
+
+    def _suspensiones_selector_estado(self):
+        opciones = ["PENDIENTE", "TRAMITADA", "RECHAZADA", "CONCLUIDA"]
+        return self._suspensiones_select_option("Estado", "Selecciona estado:", opciones, width=18)
+
+    def _suspensiones_cambiar_estado(self, susp_id):
+        item = next((i for i in self.suspensiones if i.get("id") == susp_id), None)
+        if not item:
+            return
+        estado = self._suspensiones_selector_estado()
+        if not estado:
+            return
+        item["estado"] = estado
+        now_str = self._suspensiones_now_str()
+        if estado == "TRAMITADA":
+            item["fecha_tramitacion"] = now_str
+        elif estado == "RECHAZADA":
+            item["fecha_rechazo"] = now_str
+        elif estado == "CONCLUIDA":
+            item["fecha_concluida"] = now_str
+        self.guardar_suspensiones()
+        self.refrescar_suspensiones_tree()
+
+    def _suspensiones_abrir_chat(self, susp_id):
+        item = next((i for i in self.suspensiones if i.get("id") == susp_id), None)
+        if not item:
+            return
+        movil = self._normalizar_movil(item.get("movil", ""))
+        if not movil:
+            messagebox.showwarning("Chat", "El cliente no tiene movil registrado.")
+            return
+        webbrowser.open(f"https://wa.me/{movil}")
+
+    def _suspensiones_agregar_reporte(self, susp_id):
+        item = next((i for i in self.suspensiones if i.get("id") == susp_id), None)
+        if not item:
+            return
+        nuevo = self._incidencias_pedir_reporte_visual()
+        if not nuevo:
+            return
+        item["reporte_path"] = nuevo
+        self.guardar_suspensiones()
+        self.refrescar_suspensiones_tree()
+
+    def _suspensiones_eliminar_reporte(self, susp_id):
+        item = next((i for i in self.suspensiones if i.get("id") == susp_id), None)
+        if not item:
+            return
+        if not item.get("reporte_path"):
+            messagebox.showwarning("Reporte", "No hay reporte grafico.")
+            return
+        if not messagebox.askyesno("Reporte", "Eliminar el reporte grafico?", parent=self):
+            return
+        item["reporte_path"] = ""
+        self.guardar_suspensiones()
+        self.refrescar_suspensiones_tree()
+
+    def _suspensiones_enviar_email(self, susp_id):
+        item = next((i for i in self.suspensiones if i.get("id") == susp_id), None)
+        if not item:
+            return
+        email = str(item.get("email", "")).strip()
+        if not email:
+            messagebox.showwarning("Email", "El cliente no tiene email registrado.")
+            return
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            self.clipboard_clear()
+            self.clipboard_append(email)
+            messagebox.showwarning("Outlook no disponible", "Email copiado al portapapeles.")
+            return
+        try:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            mail = outlook.CreateItem(0)
+            mail.To = email
+            mail.Subject = ""
+            mail.Body = ""
+            mail.Display()
+        except Exception as e:
+            messagebox.showerror("Email", f"No se pudo abrir Outlook.\nDetalle: {e}")
+
+    def _suspensiones_notificar_fin(self):
+        if not self.suspensiones:
+            return
+        hoy = datetime.now().date()
+        candidatos = []
+        for item in self.suspensiones:
+            if str(item.get("fin_notificado", "")).upper() == "SI":
+                continue
+            dt_fin = self._suspensiones_parse_dt(item.get("fecha_fin_suspension"))
+            if not dt_fin:
+                continue
+            if dt_fin.date() <= hoy:
+                candidatos.append(item)
+        if not candidatos:
+            return
+        emails = [str(i.get("email", "")).strip() for i in candidatos if str(i.get("email", "")).strip()]
+        if not emails:
+            return
+        if not messagebox.askyesno(
+            "Suspensiones",
+            "Hay suspensiones que finalizan hoy. Desea enviar el email?",
+            parent=self,
+        ):
+            return
+        subject = "Fin de suspension"
+        body = "\n".join(
+            [
+                "Tu periodo de suspension ha finalizado.",
+                "",
+                "Gracias por confiar en Fitness Park Villalobos.",
+                "Estamos deseando volver a verte en nuestras instalaciones desafiandote y superandote cada dia.",
+                "Nos vemos por el club.",
+            ]
+        )
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            self.clipboard_clear()
+            self.clipboard_append(";".join(emails))
+            messagebox.showwarning("Outlook no disponible", "Emails copiados al portapapeles.")
+            return
+        try:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            mail = outlook.CreateItem(0)
+            mail.Subject = subject
+            mail.BCC = ";".join(emails)
+            mail.Body = body
+            mail.Display()
+        except Exception as e:
+            messagebox.showerror("Email", f"No se pudo abrir Outlook.\nDetalle: {e}")
+            return
+        if not messagebox.askyesno("Suspensiones", "Ha enviado el email?", parent=self):
+            return
+        for item in candidatos:
+            item["fin_notificado"] = "SI"
+        self.guardar_suspensiones()
+
+    def _suspensiones_order_key(self, item, view):
+        if view == "TRAMITADA":
+            dt = self._suspensiones_parse_dt(item.get("fecha_fin_suspension"))
+            return dt or datetime.max
+        return self._suspensiones_parse_dt(item.get("fecha_registro")) or datetime.min
+
+    def refrescar_suspensiones_tree(self):
+        if not hasattr(self, "tree_suspensiones"):
+            return
+        tree = self.tree_suspensiones
+        tree.delete(*tree.get_children())
+        view = (self.suspensiones_view or "TODOS").upper()
+        cliente_filter = (self.suspensiones_cliente_filter or "").strip().upper()
+        sorted_items = sorted(
+            self.suspensiones,
+            key=lambda i: self._suspensiones_order_key(i, view),
+            reverse=(view != "TRAMITADA"),
+        )
+        for item in sorted_items:
+            codigo = str(item.get("codigo", "")).strip()
+            if cliente_filter and codigo.upper() != cliente_filter:
+                continue
+            estado = str(item.get("estado", "PENDIENTE")).upper()
+            if view != "TODOS" and estado != view:
+                continue
+            tag = ""
+            if estado == "PENDIENTE":
+                tag = "pendiente"
+            elif estado == "TRAMITADA":
+                tag = "tramitada"
+            elif estado == "CONCLUIDA":
+                tag = "concluida"
+            elif estado == "RECHAZADA":
+                tag = "rechazada"
+            values = [
+                item.get("staff", ""),
+                item.get("codigo", ""),
+                item.get("email", ""),
+                item.get("apellidos", ""),
+                item.get("nombre", ""),
+                item.get("movil", ""),
+                item.get("motivo", ""),
+                item.get("estado", ""),
+                "R" if item.get("reporte_path") else "",
+                item.get("fecha_registro", ""),
+                item.get("fecha_tramitacion", ""),
+                item.get("fecha_rechazo", ""),
+                item.get("fecha_inicio_suspension", ""),
+                item.get("fecha_fin_suspension", ""),
+                item.get("fecha_concluida", ""),
+                item.get("devolucion_recibo", ""),
+                item.get("incidencia", ""),
+                item.get("solucion", ""),
+            ]
+            tree.insert("", "end", iid=item.get("id"), values=values, tags=(tag,) if tag else ())
 
     # -----------------------------
     # INCIDENCIAS CLUB
