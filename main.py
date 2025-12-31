@@ -91,7 +91,7 @@ class ResamaniaApp(tk.Tk):
         self.bajas_impagos_set = set()
         self.suspensiones_file = os.path.join("data", "suspensiones.json")
         self.suspensiones = []
-        self.suspensiones_view = "TODOS"
+        self.suspensiones_view = "ACTIVAS"
         self.suspensiones_cliente_filter = ""
         self.suspensiones_impagos_set = set()
 
@@ -3756,9 +3756,11 @@ class ResamaniaApp(tk.Tk):
         vista_btn = tk.Menubutton(top, text="VISTA", bg="#bdbdbd", fg="black")
         vista_menu = tk.Menu(vista_btn, tearoff=0)
         vista_menu.add_command(label="TODOS LOS REGISTROS", command=lambda: self._suspensiones_set_view("TODOS"))
+        vista_menu.add_command(label="PENDIENTES", command=lambda: self._suspensiones_set_view("PENDIENTE"))
         vista_menu.add_command(label="TRAMITADAS", command=lambda: self._suspensiones_set_view("TRAMITADA"))
         vista_menu.add_command(label="RECHAZADAS", command=lambda: self._suspensiones_set_view("RECHAZADA"))
         vista_menu.add_command(label="CONCLUIDAS", command=lambda: self._suspensiones_set_view("CONCLUIDA"))
+        vista_menu.add_command(label="PENDIENTES Y TRAMITADAS", command=lambda: self._suspensiones_set_view("ACTIVAS"))
         vista_btn.configure(menu=vista_menu)
         vista_btn.pack(side="left", padx=5)
         tk.Label(top, text="Cliente:").pack(side="left", padx=(15, 4))
@@ -3782,7 +3784,6 @@ class ResamaniaApp(tk.Tk):
             "fecha_rechazo",
             "fecha_inicio_suspension",
             "fecha_fin_suspension",
-            "fecha_concluida",
             "devolucion_recibo",
             "incidencia",
             "solucion",
@@ -3807,7 +3808,6 @@ class ResamaniaApp(tk.Tk):
             "fecha_rechazo": "FECHA RECHAZO",
             "fecha_inicio_suspension": "FECHA INICIO SUSPENSION",
             "fecha_fin_suspension": "FECHA FIN SUSPENSION",
-            "fecha_concluida": "FECHA CONCLUIDA",
             "devolucion_recibo": "DEVOLUCION RECIBO",
             "incidencia": "INCIDENCIA",
             "solucion": "SOLUCION",
@@ -3825,7 +3825,6 @@ class ResamaniaApp(tk.Tk):
                 "fecha_rechazo",
                 "fecha_inicio_suspension",
                 "fecha_fin_suspension",
-                "fecha_concluida",
             ):
                 width = 140
             elif c in ("devolucion_recibo",):
@@ -3833,6 +3832,19 @@ class ResamaniaApp(tk.Tk):
             elif c in ("reporte",):
                 width = 80
             tree.column(c, anchor="center", width=width, stretch=True)
+        def sort_column(col, reverse):
+            datos = [(tree.set(k, col), k) for k in tree.get_children("")]
+            try:
+                datos.sort(key=lambda t: float(t[0].replace(",", ".")), reverse=reverse)
+            except ValueError:
+                datos.sort(key=lambda t: t[0], reverse=reverse)
+            for index, (_, k) in enumerate(datos):
+                tree.move(k, "", index)
+            tree.heading(col, command=lambda: sort_column(col, not reverse))
+
+        for c in cols:
+            tree.heading(c, command=lambda col=c: sort_column(col, False))
+
         base_widths = {c: tree.column(c, "width") for c in cols}
         tree.grid(row=0, column=0, sticky="nsew")
         vscroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
@@ -3865,6 +3877,7 @@ class ResamaniaApp(tk.Tk):
             menu.add_command(label="Ver solicitudes individuales", command=lambda: self._suspensiones_ver_solicitudes_individuales(row))
             menu.add_command(label="Modificar fecha inicio suspension", command=lambda: self._suspensiones_editar_campo(row, "fecha_inicio_suspension", "Fecha inicio", "Fecha inicio suspension:"))
             menu.add_command(label="Modificar fecha fin suspension", command=lambda: self._suspensiones_editar_campo(row, "fecha_fin_suspension", "Fecha fin", "Fecha fin suspension:"))
+            menu.add_command(label="Ver reporte grafico", command=lambda: self._suspensiones_ver_reporte(row))
             menu.add_command(label="Agregar reporte grafico", command=lambda: self._suspensiones_agregar_reporte(row))
             menu.add_command(label="Eliminar reporte grafico", command=lambda: self._suspensiones_eliminar_reporte(row))
             menu.add_separator()
@@ -4007,6 +4020,7 @@ class ResamaniaApp(tk.Tk):
         except Exception:
             self.suspensiones = []
         self._suspensiones_actualizar_devolucion()
+        self._suspensiones_actualizar_concluidas()
         if hasattr(self, "tree_suspensiones"):
             self.refrescar_suspensiones_tree()
         self._suspensiones_notificar_fin()
@@ -4060,6 +4074,24 @@ class ResamaniaApp(tk.Tk):
             valor = "SI" if codigo and codigo in impagos_set else "NO"
             if item.get("devolucion_recibo") != valor:
                 item["devolucion_recibo"] = valor
+                changed = True
+        if changed:
+            self.guardar_suspensiones()
+
+    def _suspensiones_actualizar_concluidas(self):
+        hoy = datetime.now().date()
+        changed = False
+        for item in self.suspensiones:
+            estado = str(item.get("estado", "")).upper()
+            if estado == "CONCLUIDA":
+                continue
+            dt_fin = self._suspensiones_parse_dt(item.get("fecha_fin_suspension"))
+            if not dt_fin:
+                continue
+            if dt_fin.date() <= hoy:
+                item["estado"] = "CONCLUIDA"
+                if not item.get("fecha_concluida"):
+                    item["fecha_concluida"] = self._suspensiones_now_str()
                 changed = True
         if changed:
             self.guardar_suspensiones()
@@ -4280,6 +4312,16 @@ class ResamaniaApp(tk.Tk):
             return
         webbrowser.open(f"https://wa.me/{movil}")
 
+    def _suspensiones_ver_reporte(self, susp_id):
+        item = next((i for i in self.suspensiones if i.get("id") == susp_id), None)
+        if not item:
+            return
+        reporte = item.get("reporte_path", "")
+        if not reporte:
+            messagebox.showwarning("Reporte", "No hay reporte grafico.")
+            return
+        self._incidencias_ver_reporte(reporte)
+
     def _suspensiones_agregar_reporte(self, susp_id):
         item = next((i for i in self.suspensiones if i.get("id") == susp_id), None)
         if not item:
@@ -4387,9 +4429,11 @@ class ResamaniaApp(tk.Tk):
         self.guardar_suspensiones()
 
     def _suspensiones_order_key(self, item, view):
-        if view == "TRAMITADA":
+        if view in ("TRAMITADA", "PENDIENTE", "ACTIVAS"):
             dt = self._suspensiones_parse_dt(item.get("fecha_fin_suspension"))
-            return dt or datetime.max
+            if dt:
+                return abs((dt - datetime.now()).total_seconds())
+            return float("inf")
         return self._suspensiones_parse_dt(item.get("fecha_registro")) or datetime.min
 
     def refrescar_suspensiones_tree(self):
@@ -4397,19 +4441,25 @@ class ResamaniaApp(tk.Tk):
             return
         tree = self.tree_suspensiones
         tree.delete(*tree.get_children())
-        view = (self.suspensiones_view or "TODOS").upper()
+        self._suspensiones_actualizar_concluidas()
+        view = (self.suspensiones_view or "ACTIVAS").upper()
+        if view == "PENDIENTES":
+            view = "PENDIENTE"
         cliente_filter = (self.suspensiones_cliente_filter or "").strip().upper()
         sorted_items = sorted(
             self.suspensiones,
             key=lambda i: self._suspensiones_order_key(i, view),
-            reverse=(view != "TRAMITADA"),
+            reverse=(view not in ("TRAMITADA", "PENDIENTE", "ACTIVAS")),
         )
         for item in sorted_items:
             codigo = str(item.get("codigo", "")).strip()
             if cliente_filter and codigo.upper() != cliente_filter:
                 continue
             estado = str(item.get("estado", "PENDIENTE")).upper()
-            if view != "TODOS" and estado != view:
+            if view == "ACTIVAS":
+                if estado not in ("PENDIENTE", "TRAMITADA"):
+                    continue
+            elif view != "TODOS" and estado != view:
                 continue
             tag = ""
             if estado == "PENDIENTE":
@@ -4435,7 +4485,6 @@ class ResamaniaApp(tk.Tk):
                 item.get("fecha_rechazo", ""),
                 item.get("fecha_inicio_suspension", ""),
                 item.get("fecha_fin_suspension", ""),
-                item.get("fecha_concluida", ""),
                 item.get("devolucion_recibo", ""),
                 item.get("incidencia", ""),
                 item.get("solucion", ""),
