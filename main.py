@@ -3875,8 +3875,8 @@ class ResamaniaApp(tk.Tk):
             menu.add_command(label="Modificar solucion", command=lambda: self._suspensiones_editar_campo(row, "solucion", "Solucion", "Modificar solucion:"))
             menu.add_command(label="Ver solucion", command=lambda: self._suspensiones_ver_texto(row, "solucion", "Solucion"))
             menu.add_command(label="Ver solicitudes individuales", command=lambda: self._suspensiones_ver_solicitudes_individuales(row))
-            menu.add_command(label="Modificar fecha inicio suspension", command=lambda: self._suspensiones_editar_campo(row, "fecha_inicio_suspension", "Fecha inicio", "Fecha inicio suspension:"))
-            menu.add_command(label="Modificar fecha fin suspension", command=lambda: self._suspensiones_editar_campo(row, "fecha_fin_suspension", "Fecha fin", "Fecha fin suspension:"))
+            menu.add_command(label="Modificar fecha inicio suspension", command=lambda: self._suspensiones_editar_fecha(row, "fecha_inicio_suspension"))
+            menu.add_command(label="Modificar fecha fin suspension", command=lambda: self._suspensiones_editar_fecha(row, "fecha_fin_suspension"))
             menu.add_command(label="Ver reporte grafico", command=lambda: self._suspensiones_ver_reporte(row))
             menu.add_command(label="Agregar reporte grafico", command=lambda: self._suspensiones_agregar_reporte(row))
             menu.add_command(label="Eliminar reporte grafico", command=lambda: self._suspensiones_eliminar_reporte(row))
@@ -4040,12 +4040,36 @@ class ResamaniaApp(tk.Tk):
         raw = str(value or "").strip()
         if not raw:
             return None
-        for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%Y"):
+        for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%y %H:%M", "%d/%m/%Y", "%d/%m/%y"):
             try:
                 return datetime.strptime(raw, fmt)
             except Exception:
                 continue
         return None
+
+    def _suspensiones_normalize_date(self, value):
+        dt = self._suspensiones_parse_dt(value)
+        if not dt:
+            return None, None
+        return dt, dt.strftime("%d/%m/%Y")
+
+    def _suspensiones_prompt_fecha(self, title, label, initial="", min_date=None, max_date=None):
+        while True:
+            raw = self._incidencias_prompt_text(title, label, initial=initial)
+            if raw is None:
+                return None, None
+            dt, normalized = self._suspensiones_normalize_date(raw)
+            if not dt:
+                messagebox.showwarning("Fecha", "Formato de fecha invalido. Usa dd/mm/aaaa.")
+                continue
+            date_value = dt.date()
+            if min_date and date_value < min_date:
+                messagebox.showwarning("Fecha", "La fecha no puede ser anterior a la fecha minima permitida.")
+                continue
+            if max_date and date_value > max_date:
+                messagebox.showwarning("Fecha", "La fecha no puede ser posterior a la fecha maxima permitida.")
+                continue
+            return dt, normalized
 
     def _suspensiones_get_impagos_set(self):
         fecha = self.impagos_last_export or self.impagos_db.get_last_export()
@@ -4181,11 +4205,20 @@ class ResamaniaApp(tk.Tk):
             if not otro:
                 return
             motivo = f"OTRO: {otro.strip()}"
-        fecha_inicio = self._incidencias_prompt_text("Suspension", "Fecha inicio suspension (dd/mm/yyyy):")
-        if not fecha_inicio:
+        today = datetime.now().date()
+        dt_inicio, fecha_inicio_norm = self._suspensiones_prompt_fecha(
+            "Suspension",
+            "Fecha inicio suspension (dd/mm/aaaa):",
+            min_date=today,
+        )
+        if not dt_inicio:
             return
-        fecha_fin = self._incidencias_prompt_text("Suspension", "Fecha fin suspension (dd/mm/yyyy):")
-        if not fecha_fin:
+        dt_fin, fecha_fin_norm = self._suspensiones_prompt_fecha(
+            "Suspension",
+            "Fecha fin suspension (dd/mm/aaaa):",
+            min_date=dt_inicio.date(),
+        )
+        if not dt_fin:
             return
         incidencia = ""
         if messagebox.askyesno("Incidencia", "Desea agregar una incidencia?", parent=self):
@@ -4213,8 +4246,8 @@ class ResamaniaApp(tk.Tk):
             "fecha_registro": now_str,
             "fecha_tramitacion": "",
             "fecha_rechazo": "",
-            "fecha_inicio_suspension": str(fecha_inicio).strip(),
-            "fecha_fin_suspension": str(fecha_fin).strip(),
+            "fecha_inicio_suspension": fecha_inicio_norm,
+            "fecha_fin_suspension": fecha_fin_norm,
             "fecha_concluida": "",
             "devolucion_recibo": "SI" if codigo in self.suspensiones_impagos_set else "NO",
             "incidencia": incidencia,
@@ -4270,6 +4303,36 @@ class ResamaniaApp(tk.Tk):
         if nuevo is None:
             return
         item[field] = str(nuevo).strip()
+        self.guardar_suspensiones()
+        self.refrescar_suspensiones_tree()
+
+    def _suspensiones_editar_fecha(self, susp_id, field):
+        item = next((i for i in self.suspensiones if i.get("id") == susp_id), None)
+        if not item:
+            return
+        other_field = "fecha_fin_suspension" if field == "fecha_inicio_suspension" else "fecha_inicio_suspension"
+        other_dt = self._suspensiones_parse_dt(item.get(other_field))
+        today = datetime.now().date()
+        if field == "fecha_inicio_suspension":
+            min_date = today
+            max_date = other_dt.date() if other_dt else None
+            title = "Fecha inicio"
+            label = "Fecha inicio suspension (dd/mm/aaaa):"
+        else:
+            min_date = other_dt.date() if other_dt else None
+            max_date = None
+            title = "Fecha fin"
+            label = "Fecha fin suspension (dd/mm/aaaa):"
+        dt, normalized = self._suspensiones_prompt_fecha(
+            title,
+            label,
+            initial=item.get(field, ""),
+            min_date=min_date,
+            max_date=max_date,
+        )
+        if not dt:
+            return
+        item[field] = normalized
         self.guardar_suspensiones()
         self.refrescar_suspensiones_tree()
 
