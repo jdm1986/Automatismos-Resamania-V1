@@ -2409,6 +2409,7 @@ class ResamaniaApp(tk.Tk):
         vista_btn = tk.Menubutton(top, text="VISTA", bg="#bdbdbd", fg="black")
         vista_menu = tk.Menu(vista_btn, tearoff=0)
         vista_menu.add_command(label="TODOS LOS REGISTROS", command=lambda: self._bajas_set_view("TODOS"))
+        vista_menu.add_command(label="PENDIENTES", command=lambda: self._bajas_set_view("PENDIENTE"))
         vista_menu.add_command(label="TRAMITADAS", command=lambda: self._bajas_set_view("TRAMITADA"))
         vista_menu.add_command(label="RECHAZADAS", command=lambda: self._bajas_set_view("RECHAZADA"))
         vista_menu.add_command(label="RECUPERADAS", command=lambda: self._bajas_set_view("RECUPERADA"))
