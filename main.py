@@ -3384,8 +3384,6 @@ class ResamaniaApp(tk.Tk):
 
         actions = tk.Frame(frm)
         actions.pack(fill="x", pady=6)
-        tk.Button(actions, text="Abrir WhatsApp", command=self.abrir_whatsapp_impagos, bg="#8bc34a", fg="black").pack(side="left", padx=5)
-        tk.Button(actions, text="Copiar email", command=self.copiar_email_impagos).pack(side="left", padx=5)
         self.btn_impagos_email_1 = tk.Button(
             actions,
             text="Enviar email (1Inc)",
@@ -3796,14 +3794,7 @@ class ResamaniaApp(tk.Tk):
             '<img src="cid:{{CID}}" alt="Pago hecho" style="max-width:100%;">'
             '</div>'
         )
-
     def ir_a_impagos(self):
-        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*", parent=self)
-        if pin is None:
-            return
-        if pin.strip() != get_security_code():
-            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
-            return
         tab = self.tabs.get("Impagos")
         if tab:
             self.notebook.add(tab, text="Impagos", image=self.tab_icons.get("Impagos"), compound="left")
@@ -6536,3 +6527,4 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
 if __name__ == "__main__":
     app = ResamaniaApp()
     app.mainloop()
+
