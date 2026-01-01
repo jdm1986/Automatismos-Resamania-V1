@@ -956,6 +956,8 @@ class ResamaniaApp(tk.Tk):
         tab = self.tabs.get("Incidencias Club")
         if tab:
             self.notebook.select(tab)
+            # Vista por defecto: pendientes y vistas.
+            self.incidencias_filtro_estado = "VISTO_PENDIENTE"
             self.after(0, self.incidencias_info_maquinas)
 
     def ir_a_incidencias_socios(self):
@@ -4711,6 +4713,7 @@ class ResamaniaApp(tk.Tk):
         vista_menu.add_command(label="TODAS LAS INCIDENCIAS", command=lambda: self._incidencias_set_filtro_estado("TODAS"))
         vista_menu.add_command(label="PENDIENTES", command=lambda: self._incidencias_set_filtro_estado("PENDIENTE"))
         vista_menu.add_command(label="VISTAS", command=lambda: self._incidencias_set_filtro_estado("VISTO"))
+        vista_menu.add_command(label="VISTAS Y PENDIENTES", command=lambda: self._incidencias_set_filtro_estado("VISTO_PENDIENTE"))
         vista_menu.add_command(label="REPARADAS", command=lambda: self._incidencias_set_filtro_estado("REPARADO"))
         vista_btn.configure(menu=vista_menu)
         vista_btn.pack(side="left", padx=5)
@@ -5460,7 +5463,10 @@ class ResamaniaApp(tk.Tk):
                 serie,
                 numero,
             ) = inc
-            if filtro_estado != "TODAS" and estado != filtro_estado:
+            if filtro_estado == "VISTO_PENDIENTE":
+                if estado not in ("VISTO", "PENDIENTE"):
+                    continue
+            elif filtro_estado != "TODAS" and estado != filtro_estado:
                 continue
             creador = " ".join([p for p in [creador_nombre, creador_apellido1] if p]).strip()
             tag = ""
