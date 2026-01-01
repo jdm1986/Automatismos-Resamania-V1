@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from datetime import datetime
 import unicodedata
@@ -72,6 +73,9 @@ def normalize_impagos_df(df, resumen_map=None):
 class ImpagosDB:
     def __init__(self, db_path: str):
         self.db_path = db_path
+        db_dir = os.path.dirname(db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
         self.init_db()
 
     def _connect(self):
