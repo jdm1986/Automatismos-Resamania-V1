@@ -1105,6 +1105,12 @@ class ResamaniaApp(tk.Tk):
         except Exception:
             return None
 
+    def _socios_parse_dt(self, valor):
+        try:
+            return datetime.strptime(str(valor), "%d/%m/%Y %H:%M")
+        except Exception:
+            return None
+
     def _bring_to_front(self):
         try:
             self.lift()
@@ -1623,7 +1629,11 @@ class ResamaniaApp(tk.Tk):
         tree.delete(*tree.get_children())
         filtro = (self.incidencias_socios_filtro or "TODAS").upper()
         codigo_filtro = (self.incidencias_socios_filtro_codigo or "").strip()
-        for inc in sorted(self.incidencias_socios, key=lambda i: i.get("fecha", ""), reverse=True):
+        for inc in sorted(
+            self.incidencias_socios,
+            key=lambda i: self._socios_parse_dt(i.get("fecha")) or datetime.min,
+            reverse=True,
+        ):
             if codigo_filtro and str(inc.get("codigo", "")).strip() != codigo_filtro:
                 continue
             estado = str(inc.get("estado", "PENDIENTE")).upper()
@@ -2163,10 +2173,38 @@ class ResamaniaApp(tk.Tk):
             pass
 
     def _taquillas_parse_dt(self, value):
-        try:
-            return datetime.strptime(str(value or ""), "%d/%m/%Y %H:%M")
-        except Exception:
+        if not value:
             return None
+        raw = str(value).strip()
+        if not raw:
+            return None
+        raw = raw.replace("\u00a0", " ")
+        raw = " ".join(raw.split())
+        candidates = [raw]
+        if " " not in raw:
+            candidates.append(f"{raw} 00:00")
+        formats = [
+            "%d/%m/%Y %H:%M",
+            "%d/%m/%Y %H:%M:%S",
+            "%d/%m/%y %H:%M",
+            "%d/%m/%y %H:%M:%S",
+            "%d-%m-%Y %H:%M",
+            "%d-%m-%Y %H:%M:%S",
+            "%d-%m-%y %H:%M",
+            "%d-%m-%y %H:%M:%S",
+        ]
+        for candidate in candidates:
+            for fmt in formats:
+                try:
+                    return datetime.strptime(candidate, fmt)
+                except Exception:
+                    pass
+        for fmt in ("%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y", "%d-%m-%y"):
+            try:
+                return datetime.strptime(raw, fmt)
+            except Exception:
+                pass
+        return None
 
     def _taquillas_now_str(self):
         return datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -2376,7 +2414,11 @@ class ResamaniaApp(tk.Tk):
         tree.delete(*tree.get_children())
         overdue_ids = set(self._taquillas_get_overdue_ids())
         blink_on = self.objetos_taquillas_blink_on
-        for item in sorted(self.objetos_taquillas, key=lambda i: i.get("fecha_extraccion", ""), reverse=True):
+        for item in sorted(
+            self.objetos_taquillas,
+            key=lambda i: self._taquillas_parse_dt(i.get("fecha_extraccion")) or datetime.min,
+            reverse=True,
+        ):
             tag = ""
             if item.get("id") in overdue_ids:
                 tag = "overdue_on" if blink_on else "overdue_off"
