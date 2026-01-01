@@ -76,7 +76,7 @@ class ResamaniaApp(tk.Tk):
         self.prestamos_filtro_activo = False
         self.incidencias_socios_file = os.path.join("data", "incidencias_socios.json")
         self.incidencias_socios = []
-        self.incidencias_socios_filtro = "TODAS"
+        self.incidencias_socios_filtro = "VISTO_PENDIENTE"
         self.incidencias_socios_encontrado = None
         self.incidencias_socios_filtro_codigo = None
         self.incidencias_filtro_estado = "TODAS"
@@ -248,7 +248,7 @@ class ResamaniaApp(tk.Tk):
         tk.Button(self.gestion_clientes_frame, text="EXTRAER ACCESOS", command=self.extraer_accesos, fg="#0066cc").pack(side=tk.LEFT, padx=5)
         tk.Button(self.gestion_clientes_frame, text="IR A PRESTAMOS", command=lambda: self.notebook.select(self.tabs.get("Prestamos")), bg="#ff9800", fg="black").pack(side=tk.LEFT, padx=5)
         tk.Button(self.gestion_clientes_frame, text="IR A IMPAGOS", command=self.ir_a_impagos, bg="#ff6b6b", fg="black").pack(side=tk.LEFT, padx=5)
-        tk.Button(self.gestion_clientes_frame, text="INCIDENCIAS SOCIOS", command=lambda: self.notebook.select(self.tabs.get("Incidencias Socios")), bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=5)
+        tk.Button(self.gestion_clientes_frame, text="INCIDENCIAS SOCIOS", command=self.ir_a_incidencias_socios, bg="#9e9e9e", fg="black").pack(side=tk.LEFT, padx=5)
         self.btn_objetos_taquillas = tk.Button(
             self.gestion_clientes_frame,
             text="OBJETOS TAQUILLAS",
@@ -958,6 +958,14 @@ class ResamaniaApp(tk.Tk):
             self.notebook.select(tab)
             self.after(0, self.incidencias_info_maquinas)
 
+    def ir_a_incidencias_socios(self):
+        tab = self.tabs.get("Incidencias Socios")
+        if tab:
+            self.incidencias_socios_filtro = "VISTO_PENDIENTE"
+            self.incidencias_socios_filtro_codigo = None
+            self.refrescar_incidencias_socios_tree()
+            self.notebook.select(tab)
+
     def select_folder(self):
         folder = filedialog.askdirectory()
         if folder:
@@ -1619,7 +1627,10 @@ class ResamaniaApp(tk.Tk):
             if codigo_filtro and str(inc.get("codigo", "")).strip() != codigo_filtro:
                 continue
             estado = str(inc.get("estado", "PENDIENTE")).upper()
-            if filtro != "TODAS" and estado != filtro:
+            if filtro == "VISTO_PENDIENTE":
+                if estado not in ("VISTO", "PENDIENTE"):
+                    continue
+            elif filtro != "TODAS" and estado != filtro:
                 continue
             reporte = "R" if inc.get("reporte_path") else ""
             tag = ""
@@ -1979,6 +1990,7 @@ class ResamaniaApp(tk.Tk):
         vista_menu.add_command(label="PENDIENTES", command=lambda: self._socios_set_filtro("PENDIENTE"))
         vista_menu.add_command(label="VISTAS", command=lambda: self._socios_set_filtro("VISTO"))
         vista_menu.add_command(label="RESUELTAS", command=lambda: self._socios_set_filtro("RESUELTO"))
+        vista_menu.add_command(label="VISTAS Y PENDIENTES", command=lambda: self._socios_set_filtro("VISTO_PENDIENTE"))
         vista_btn.configure(menu=vista_menu)
         vista_btn.pack(side="left", padx=5)
         tk.Button(top, text="LIMPIAR", command=self._socios_limpiar_filtro_cliente).pack(side="left", padx=5)
@@ -6460,18 +6472,11 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
 
     def enviar_avanza_fit(self):
         """
-        Pide PIN y abre borrador Outlook con el Excel adjunto de la pestaña Avanza Fit.
+        Abre borrador Outlook con el Excel adjunto de la pestaña Avanza Fit.
         """
         df = self.dataframes.get("Avanza Fit")
         if df is None or df.empty:
             messagebox.showwarning("Sin datos", "No hay datos cargados en la pestaña Avanza Fit.")
-            return
-
-        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
-        if pin is None:
-            return
-        if pin.strip() != get_security_code():
-            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
             return
 
         # Generar archivo temporal con los datos
