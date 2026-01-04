@@ -1029,6 +1029,7 @@ class ResamaniaApp(tk.Tk):
             data_dir = os.path.join(folder, "data")
             set_data_dir(data_dir)
             self._set_data_dir(data_dir, show_message=True)
+            self._cleanup_local_data_dir()
             self.refresh_persistent_data(show_messages=True)
             self.refresh_all_data(show_messages=True)
 
@@ -1058,6 +1059,18 @@ class ResamaniaApp(tk.Tk):
         self.pmr_advertencias_file = os.path.join(self.data_dir, "pmr_advertencias.json")
         if hasattr(self, "incidencias_canvas") and self.incidencias_canvas:
             self.incidencias_cargar_listado_mapas()
+
+    def _cleanup_local_data_dir(self):
+        local_dir = os.path.normpath(os.path.join(get_app_dir(), "data"))
+        target_dir = os.path.normpath(self.data_dir or "")
+        if not local_dir or not os.path.exists(local_dir):
+            return
+        if target_dir and os.path.normcase(local_dir) == os.path.normcase(target_dir):
+            return
+        try:
+            shutil.rmtree(local_dir)
+        except Exception:
+            pass
 
     def mostrar_rutas_datos(self):
         if not self._security_pin_ok():
