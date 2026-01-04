@@ -25,23 +25,57 @@ from utils.file_loader import load_data_file
 from logic.impagos import ImpagosDB
 from logic.incidencias import IncidenciasDB
 
-CONFIG_PATH = "config.json"
+
+def get_app_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
 
 
-def get_default_folder():
+CONFIG_PATH = os.path.join(get_app_dir(), "config.json")
+
+
+def _read_config():
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r") as f:
-                data = json.load(f)
-                return data.get("carpeta_datos", "")
+                return json.load(f)
         except json.JSONDecodeError:
-            return ""
-    return ""
+            return {}
+    return {}
+
+
+def _write_config(data):
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(data, f)
+
+
+def get_default_folder():
+    data = _read_config()
+    path = data.get("carpeta_datos", "")
+    return os.path.normpath(path) if path else ""
 
 
 def set_default_folder(path):
-    with open(CONFIG_PATH, "w") as f:
-        json.dump({"carpeta_datos": path}, f)
+    data = _read_config()
+    data["carpeta_datos"] = os.path.normpath(path)
+    _write_config(data)
+
+
+def get_data_dir():
+    data = _read_config()
+    path = data.get("data_dir")
+    if not path:
+        path = os.path.join(get_app_dir(), "data")
+    if not os.path.isabs(path):
+        path = os.path.join(get_app_dir(), path)
+    return os.path.normpath(path)
+
+
+def set_data_dir(path):
+    data = _read_config()
+    data["data_dir"] = os.path.normpath(path)
+    _write_config(data)
 
 
 def get_logo_path(filename):
@@ -67,38 +101,47 @@ class ResamaniaApp(tk.Tk):
         self.dataframes = {}
         self.raw_accesos = None
         self.resumen_df = None
+        self.data_dir = get_data_dir()
+        if self.folder_path:
+            self.data_dir = os.path.join(self.folder_path, "data")
+            set_data_dir(self.data_dir)
+        try:
+            os.makedirs(self.data_dir, exist_ok=True)
+        except Exception:
+            self.data_dir = "data"
+            os.makedirs(self.data_dir, exist_ok=True)
 
         # Datos de prestamos
-        self.prestamos_file = os.path.join("data", "prestamos.json")
+        self.prestamos_file = os.path.join(self.data_dir, "prestamos.json")
         self.prestamos = []
-        self.clientes_ext_file = os.path.join("data", "clientes_ext.json")
+        self.clientes_ext_file = os.path.join(self.data_dir, "clientes_ext.json")
         self.clientes_ext = []
         self.prestamos_filtro_activo = False
-        self.incidencias_socios_file = os.path.join("data", "incidencias_socios.json")
+        self.incidencias_socios_file = os.path.join(self.data_dir, "incidencias_socios.json")
         self.incidencias_socios = []
         self.incidencias_socios_filtro = "VISTO_PENDIENTE"
         self.incidencias_socios_encontrado = None
         self.incidencias_socios_filtro_codigo = None
         self.incidencias_filtro_estado = "TODAS"
-        self.objetos_taquillas_file = os.path.join("data", "objetos_taquillas.json")
+        self.objetos_taquillas_file = os.path.join(self.data_dir, "objetos_taquillas.json")
         self.objetos_taquillas = []
         self.objetos_taquillas_blink_job = None
         self.objetos_taquillas_blink_on = False
-        self.bajas_file = os.path.join("data", "bajas.json")
+        self.bajas_file = os.path.join(self.data_dir, "bajas.json")
         self.bajas = []
         self.bajas_view = "TODOS"
         self.bajas_cliente_filter = ""
         self.bajas_impagos_set = set()
-        self.suspensiones_file = os.path.join("data", "suspensiones.json")
+        self.suspensiones_file = os.path.join(self.data_dir, "suspensiones.json")
         self.suspensiones = []
         self.suspensiones_view = "ACTIVAS"
         self.suspensiones_cliente_filter = ""
         self.suspensiones_impagos_set = set()
 
         # Felicitaciones (persistencia anual)
-        self.felicitaciones_file = os.path.join("data", "felicitaciones.json")
+        self.felicitaciones_file = os.path.join(self.data_dir, "felicitaciones.json")
         self.felicitaciones_enviadas = {}
-        self.avanza_fit_envios_file = os.path.join("data", "avanza_fit_envios.json")
+        self.avanza_fit_envios_file = os.path.join(self.data_dir, "avanza_fit_envios.json")
         self.avanza_fit_envios = {}
 
         # Parpadeo de botones
@@ -106,19 +149,19 @@ class ResamaniaApp(tk.Tk):
         self.blink_interval_ms = 650
 
         # Impagos (SQLite)
-        self.impagos_db = ImpagosDB(os.path.join("data", "impagos.db"))
+        self.impagos_db = ImpagosDB(os.path.join(self.data_dir, "impagos.db"))
         self.impagos_last_export = None
         self.impagos_view = tk.StringVar(value="actuales")
 
         # Staff
-        self.staff_file = os.path.join("data", "staff.json")
+        self.staff_file = os.path.join(self.data_dir, "staff.json")
         self.staff = []
         self.staff_menu = None
         self.staff_tree = None
         self.staff_filter_var = None
 
         # Incidencias Club
-        self.incidencias_db = IncidenciasDB(os.path.join("data", "incidencias.db"))
+        self.incidencias_db = IncidenciasDB(os.path.join(self.data_dir, "incidencias.db"))
         self.incidencias_mapas = []
         self.incidencias_map_index = 0
         self.incidencias_img = None
@@ -145,12 +188,17 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_pan_active = False
 
         # Salidas PMR autorizados/advertidos
-        self.pmr_autorizados_file = os.path.join("data", "pmr_autorizados.json")
+        self.pmr_autorizados_file = os.path.join(self.data_dir, "pmr_autorizados.json")
         self.pmr_autorizados = set()
-        self.pmr_advertencias_file = os.path.join("data", "pmr_advertencias.json")
+        self.pmr_advertencias_file = os.path.join(self.data_dir, "pmr_advertencias.json")
         self.pmr_advertencias = {}
         self.pmr_df_raw = None
         self.accesos_grupo_actual = None
+
+        self.auto_refresh_interval_ms = 120000
+        self.auto_refresh_job = None
+        self.auto_refresh_last_error = None
+        self.auto_refresh_last_error_shown = None
 
         self.create_widgets()
         self.cargar_clientes_ext()
@@ -167,6 +215,7 @@ class ResamaniaApp(tk.Tk):
         if self.folder_path:
             self.load_data()
         self.after(500, self.update_blink_states)
+        self._schedule_auto_refresh()
 
     def create_widgets(self):
         top_frame = tk.Frame(self)
@@ -221,7 +270,8 @@ class ResamaniaApp(tk.Tk):
         self.btn_staff = tk.Button(botones_frame, text="STAFF", command=self.abrir_staff, bg="#9e9e9e", fg="black")
         self.btn_staff.pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="Actualizar datos", command=self.load_data).pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="RUTAS DATOS", command=self.mostrar_rutas_datos).pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="Actualizar datos", command=self.refresh_all_data).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=self.ir_a_incidencias_club, bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="GESTION CLIENTES", command=self.mostrar_gestion_clientes, bg="#c5e1a5", fg="black").pack(side=tk.LEFT, padx=10)
@@ -260,14 +310,14 @@ class ResamaniaApp(tk.Tk):
         tk.Button(
             self.gestion_clientes_frame,
             text="GESTION BAJAS",
-            command=lambda: self.notebook.select(self.tabs.get("Gestion Bajas")),
+            command=self.ir_a_gestion_bajas,
             bg="#b39ddb",
             fg="black",
         ).pack(side=tk.LEFT, padx=5)
         tk.Button(
             self.gestion_clientes_frame,
             text="GESTION SUSPENSIONES",
-            command=lambda: self.notebook.select(self.tabs.get("Gestion Suspensiones")),
+            command=self.ir_a_gestion_suspensiones,
             bg="#c8e6c9",
             fg="black",
         ).pack(side=tk.LEFT, padx=5)
@@ -958,6 +1008,8 @@ class ResamaniaApp(tk.Tk):
             self.notebook.select(tab)
             # Vista por defecto: pendientes y vistas.
             self.incidencias_filtro_estado = "VISTO_PENDIENTE"
+            if hasattr(self, "incidencias_canvas") and self.incidencias_canvas:
+                self.incidencias_cargar_listado_mapas()
             self.after(0, self.incidencias_info_maquinas)
 
     def ir_a_incidencias_socios(self):
@@ -968,17 +1020,112 @@ class ResamaniaApp(tk.Tk):
             self.refrescar_incidencias_socios_tree()
             self.notebook.select(tab)
 
+    def ir_a_gestion_bajas(self):
+        if not self._security_pin_ok():
+            return
+        tab = self.tabs.get("Gestion Bajas")
+        if tab:
+            self.notebook.select(tab)
+
+    def ir_a_gestion_suspensiones(self):
+        if not self._security_pin_ok():
+            return
+        tab = self.tabs.get("Gestion Suspensiones")
+        if tab:
+            self.notebook.select(tab)
+
     def select_folder(self):
         folder = filedialog.askdirectory()
         if folder:
             self.folder_path = folder
             set_default_folder(folder)
-            self.load_data()
+            data_dir = os.path.join(folder, "data")
+            set_data_dir(data_dir)
+            self._set_data_dir(data_dir, show_message=True)
+            self.refresh_persistent_data(show_messages=True)
+            self.refresh_all_data(show_messages=True)
 
-    def load_data(self):
-        if not self.folder_path:
-            messagebox.showerror("Error", "No se ha seleccionado carpeta")
+    def _set_data_dir(self, data_dir, show_message=False):
+        self.data_dir = os.path.normpath(data_dir)
+        try:
+            os.makedirs(self.data_dir, exist_ok=True)
+        except Exception as e:
+            fallback_dir = os.path.join(get_app_dir(), "data")
+            if show_message:
+                messagebox.showerror("Carpeta datos", f"No se pudo crear la carpeta de datos:\n{self.data_dir}\n\nSe usara:\n{fallback_dir}\n\nDetalle: {e}", parent=self)
+            self.data_dir = fallback_dir
+            os.makedirs(self.data_dir, exist_ok=True)
+
+        self.prestamos_file = os.path.join(self.data_dir, "prestamos.json")
+        self.clientes_ext_file = os.path.join(self.data_dir, "clientes_ext.json")
+        self.incidencias_socios_file = os.path.join(self.data_dir, "incidencias_socios.json")
+        self.objetos_taquillas_file = os.path.join(self.data_dir, "objetos_taquillas.json")
+        self.bajas_file = os.path.join(self.data_dir, "bajas.json")
+        self.suspensiones_file = os.path.join(self.data_dir, "suspensiones.json")
+        self.felicitaciones_file = os.path.join(self.data_dir, "felicitaciones.json")
+        self.avanza_fit_envios_file = os.path.join(self.data_dir, "avanza_fit_envios.json")
+        self.impagos_db = ImpagosDB(os.path.join(self.data_dir, "impagos.db"))
+        self.staff_file = os.path.join(self.data_dir, "staff.json")
+        self.incidencias_db = IncidenciasDB(os.path.join(self.data_dir, "incidencias.db"))
+        self.pmr_autorizados_file = os.path.join(self.data_dir, "pmr_autorizados.json")
+        self.pmr_advertencias_file = os.path.join(self.data_dir, "pmr_advertencias.json")
+        if hasattr(self, "incidencias_canvas") and self.incidencias_canvas:
+            self.incidencias_cargar_listado_mapas()
+
+    def mostrar_rutas_datos(self):
+        if not self._security_pin_ok():
             return
+        config_path = CONFIG_PATH
+        carpeta_csv = self.folder_path or "(no seleccionada)"
+        data_dir = self.data_dir or "(no definida)"
+        impagos_db_path = getattr(self.impagos_db, "db_path", "") if hasattr(self, "impagos_db") else ""
+        incidencias_db_path = getattr(self.incidencias_db, "db_path", "") if hasattr(self, "incidencias_db") else ""
+        maps_dir = os.path.join(self.data_dir, "maps") if self.data_dir else ""
+        maps_count = None
+        map_rows = []
+        maps_error = ""
+        try:
+            map_rows = self.incidencias_db.list_maps() if hasattr(self, "incidencias_db") else []
+            maps_count = len(map_rows)
+        except Exception as e:
+            maps_error = str(e)
+        lines = [
+            f"CONFIG: {config_path}",
+            f"CSV: {carpeta_csv}",
+            f"DATA: {data_dir}",
+            f"CWD: {os.getcwd()}",
+            f"IMPAGOS DB: {impagos_db_path}",
+            f"INCIDENCIAS DB: {incidencias_db_path}",
+            f"MAPS dir: {maps_dir}",
+            f"CONFIG existe: {'SI' if os.path.exists(config_path) else 'NO'}",
+            f"CSV existe: {'SI' if os.path.exists(carpeta_csv) else 'NO'}",
+            f"DATA existe: {'SI' if os.path.exists(data_dir) else 'NO'}",
+            f"IMPAGOS DB existe: {'SI' if impagos_db_path and os.path.exists(impagos_db_path) else 'NO'}",
+            f"INCIDENCIAS DB existe: {'SI' if incidencias_db_path and os.path.exists(incidencias_db_path) else 'NO'}",
+            f"MAPS existe: {'SI' if maps_dir and os.path.exists(maps_dir) else 'NO'}",
+        ]
+        if maps_error:
+            lines.append(f"MAPS DB error: {maps_error}")
+        else:
+            lines.append(f"MAPS DB count: {maps_count}")
+            if map_rows:
+                first = map_rows[0]
+                try:
+                    _id, nombre, ruta, *_rest = first
+                except Exception:
+                    nombre, ruta = "", ""
+                resolved = self._incidencias_resolve_map_path(ruta, nombre)
+                lines.append(f"MAPA 1 nombre: {nombre}")
+                lines.append(f"MAPA 1 ruta: {ruta}")
+                lines.append(f"MAPA 1 resuelta: {resolved}")
+                lines.append(f"MAPA 1 existe: {'SI' if resolved and os.path.exists(resolved) else 'NO'}")
+        messagebox.showinfo("Rutas de datos", "\n".join(lines), parent=self)
+
+    def load_data(self, show_messages=True):
+        if not self.folder_path:
+            if show_messages:
+                messagebox.showerror("Error", "No se ha seleccionado carpeta")
+            return False
 
         try:
             resumen = load_data_file(self.folder_path, "RESUMEN CLIENTE")
@@ -1004,9 +1151,65 @@ class ResamaniaApp(tk.Tk):
             self._mostrar_grupo("Accesos", "Accesos Dobles")
             self._mostrar_grupo("Servicios", "Socios Ultimate")
             self.update_blink_states()
-            messagebox.showinfo("Exito", "Datos cargados correctamente.")
+            if show_messages:
+                messagebox.showinfo("Exito", "Datos cargados correctamente.")
+            return True
         except Exception as e:
-            messagebox.showerror("Error al cargar datos", str(e))
+            if show_messages:
+                messagebox.showerror("Error al cargar datos", str(e))
+            else:
+                self.auto_refresh_last_error = str(e)
+            return False
+
+    def refresh_persistent_data(self, show_messages=True):
+        try:
+            self.cargar_clientes_ext()
+            self.cargar_prestamos_json()
+            self.cargar_incidencias_socios()
+            self.cargar_objetos_taquillas()
+            self.cargar_bajas()
+            self.cargar_suspensiones()
+            self.cargar_felicitaciones()
+            self.cargar_avanza_fit_envios()
+            self.cargar_staff()
+            self.cargar_pmr_autorizados()
+            self.cargar_pmr_advertencias()
+            if hasattr(self, "incidencias_canvas") and self.incidencias_canvas:
+                self.incidencias_cargar_listado_mapas()
+            return True
+        except Exception as e:
+            if show_messages:
+                messagebox.showerror("Error al cargar datos", str(e))
+            return False
+
+    def refresh_all_data(self, show_messages=True):
+        csv_ok = self.load_data(show_messages=show_messages)
+        self.refresh_persistent_data(show_messages=show_messages)
+        return csv_ok
+
+    def _schedule_auto_refresh(self):
+        if self.auto_refresh_job is not None:
+            try:
+                self.after_cancel(self.auto_refresh_job)
+            except Exception:
+                pass
+        self.auto_refresh_job = self.after(self.auto_refresh_interval_ms, self._auto_refresh_tick)
+
+    def _auto_refresh_tick(self):
+        if not self.folder_path:
+            self.refresh_persistent_data(show_messages=False)
+            self._schedule_auto_refresh()
+            return
+        ok = self.refresh_all_data(show_messages=False)
+        if not ok:
+            err = self.auto_refresh_last_error
+            if err and err != self.auto_refresh_last_error_shown:
+                messagebox.showerror("Error al cargar datos", err, parent=self)
+                self.auto_refresh_last_error_shown = err
+        else:
+            self.auto_refresh_last_error = None
+            self.auto_refresh_last_error_shown = None
+        self._schedule_auto_refresh()
 
     def mostrar_en_tabla(self, tab_name, df, color=None):
         # Guarda el ultimo dataframe mostrado para poder reutilizarlo (ej. enviar emails)
@@ -1878,7 +2081,14 @@ class ResamaniaApp(tk.Tk):
         if not reporte:
             messagebox.showwarning("Reporte", "No hay reporte visual.")
             return
-        self._incidencias_ver_reporte(reporte)
+        resolved = self._incidencias_resolve_reporte_path(reporte)
+        if resolved:
+            stored = self._incidencias_store_reporte_path(resolved)
+            if stored and stored != reporte:
+                inc["reporte_path"] = stored
+                self.guardar_incidencias_socios()
+                self.refrescar_incidencias_socios_tree()
+        self._incidencias_ver_reporte(resolved or reporte)
 
     def _socios_modificar_reporte(self, inc_id):
         inc = next((i for i in self.incidencias_socios if i.get("id") == inc_id), None)
@@ -2375,7 +2585,14 @@ class ResamaniaApp(tk.Tk):
         if not item:
             return
         reporte = item.get("reporte_path", "")
-        self._incidencias_ver_reporte(reporte)
+        resolved = self._incidencias_resolve_reporte_path(reporte)
+        if resolved:
+            stored = self._incidencias_store_reporte_path(resolved)
+            if stored and stored != reporte:
+                item["reporte_path"] = stored
+                self.guardar_objetos_taquillas()
+                self.refrescar_objetos_taquillas_tree()
+        self._incidencias_ver_reporte(resolved or reporte)
 
     def _taquillas_eliminar_pertenencias(self, item_id):
         item = next((i for i in self.objetos_taquillas if i.get("id") == item_id), None)
@@ -3851,6 +4068,8 @@ class ResamaniaApp(tk.Tk):
             '</div>'
         )
     def ir_a_impagos(self):
+        if not self._security_pin_ok():
+            return
         tab = self.tabs.get("Impagos")
         if tab:
             self.notebook.add(tab, text="Impagos", image=self.tab_icons.get("Impagos"), compound="left")
@@ -4516,7 +4735,14 @@ class ResamaniaApp(tk.Tk):
         if not reporte:
             messagebox.showwarning("Reporte", "No hay reporte grafico.")
             return
-        self._incidencias_ver_reporte(reporte)
+        resolved = self._incidencias_resolve_reporte_path(reporte)
+        if resolved:
+            stored = self._incidencias_store_reporte_path(resolved)
+            if stored and stored != reporte:
+                item["reporte_path"] = stored
+                self.guardar_suspensiones()
+                self.refrescar_suspensiones_tree()
+        self._incidencias_ver_reporte(resolved or reporte)
 
     def _suspensiones_agregar_reporte(self, susp_id):
         item = next((i for i in self.suspensiones if i.get("id") == susp_id), None)
@@ -4761,6 +4987,16 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_cargar_listado_mapas()
         self.incidencias_gestion_incidencias()
 
+    def _security_pin_ok(self):
+        self._bring_to_front()
+        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
+        if pin is None:
+            return False
+        if pin.strip() != get_security_code():
+            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
+            return False
+        return True
+
     def _incidencias_pin_ok(self):
         self._bring_to_front()
         pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
@@ -4931,29 +5167,36 @@ class ResamaniaApp(tk.Tk):
         if not ruta:
             return ""
         try:
-            reports_dir = os.path.join("data", "incidencias_reportes")
+            reports_dir = os.path.join(self.data_dir, "incidencias_reportes")
             os.makedirs(reports_dir, exist_ok=True)
             ext = os.path.splitext(ruta)[1]
             destino = os.path.join(reports_dir, f"reporte_{uuid.uuid4().hex}{ext}")
             shutil.copy2(ruta, destino)
-            return destino
+            return os.path.basename(destino)
         except Exception:
             return ruta
 
     def _incidencias_ver_reporte(self, ruta):
-        if not ruta or not os.path.exists(ruta):
-            messagebox.showwarning("Reporte visual", "No se encontro el archivo del reporte.", parent=self)
+        ruta_resuelta = self._incidencias_resolve_reporte_path(ruta)
+        if not ruta_resuelta:
+            reports_dir = os.path.join(self.data_dir, "incidencias_reportes")
+            messagebox.showwarning(
+                "Reporte visual",
+                f"No se encontro el archivo del reporte.\n\nRuta guardada:\n{ruta}\n\nCarpeta:\n{reports_dir}",
+                parent=self,
+            )
             return
         try:
-            os.startfile(ruta)
+            os.startfile(ruta_resuelta)
         except Exception as exc:
             messagebox.showerror("Reporte visual", f"No se pudo abrir el reporte.\nDetalle: {exc}", parent=self)
 
     def _incidencias_guardar_reporte(self, ruta):
-        if not ruta or not os.path.exists(ruta):
+        ruta_resuelta = self._incidencias_resolve_reporte_path(ruta)
+        if not ruta_resuelta:
             messagebox.showwarning("Reporte visual", "No se encontro el archivo del reporte.", parent=self)
             return
-        filename = os.path.basename(ruta)
+        filename = os.path.basename(ruta_resuelta)
         destino = filedialog.asksaveasfilename(
             parent=self,
             title="Guardar reporte visual",
@@ -4963,7 +5206,7 @@ class ResamaniaApp(tk.Tk):
         if not destino:
             return
         try:
-            shutil.copy2(ruta, destino)
+            shutil.copy2(ruta_resuelta, destino)
             messagebox.showinfo("Reporte visual", f"Reporte guardado en: {destino}", parent=self)
         except Exception as exc:
             messagebox.showerror("Reporte visual", f"No se pudo guardar el reporte.\nDetalle: {exc}", parent=self)
@@ -5003,7 +5246,7 @@ class ResamaniaApp(tk.Tk):
         cantidad = simpledialog.askinteger("Mapas", "Cuantos mapas quieres cargar?", minvalue=1, maxvalue=20, parent=self)
         if not cantidad:
             return
-        maps_dir = os.path.join("data", "maps")
+        maps_dir = os.path.join(self.data_dir, "maps")
         os.makedirs(maps_dir, exist_ok=True)
         for _ in range(cantidad):
             ruta = filedialog.askopenfilename(filetypes=[("PNG", "*.png")])
@@ -5013,7 +5256,7 @@ class ResamaniaApp(tk.Tk):
             destino = os.path.join(maps_dir, nombre)
             shutil.copy2(ruta, destino)
             img = Image.open(destino)
-            self.incidencias_db.add_map(nombre, destino, img.width, img.height)
+            self.incidencias_db.add_map(nombre, nombre, img.width, img.height)
         self.incidencias_cargar_listado_mapas()
 
     def incidencias_borrar_mapa(self):
@@ -5029,8 +5272,9 @@ class ResamaniaApp(tk.Tk):
         if not messagebox.askyesno("Borrar mapa", f"Borrar el mapa {nombre} y todo lo asociado?", parent=self):
             return
         try:
-            if ruta and os.path.exists(ruta):
-                os.remove(ruta)
+            ruta_resuelta = self._incidencias_resolve_map_path(ruta)
+            if ruta_resuelta and os.path.exists(ruta_resuelta):
+                os.remove(ruta_resuelta)
         except Exception:
             pass
         self.incidencias_db.delete_map(mapa_id)
@@ -5063,7 +5307,27 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_area_items = {}
         self.incidencias_machine_items = {}
         self.incidencias_machine_area = {}
-        img = Image.open(ruta)
+        ruta_resuelta = self._incidencias_resolve_map_path(ruta, nombre)
+        if not ruta_resuelta:
+            self._bring_to_front()
+            messagebox.showwarning(
+                "Mapas",
+                f"No se encontro el archivo del mapa.\n\nRuta guardada:\n{ruta}\n\nNombre:\n{nombre}",
+                parent=self,
+            )
+            return
+        if ruta_resuelta != ruta:
+            self.incidencias_db.update_map_path(mapa_id, ruta_resuelta)
+        try:
+            img = Image.open(ruta_resuelta)
+        except Exception as e:
+            self._bring_to_front()
+            messagebox.showerror(
+                "Mapas",
+                f"No se pudo abrir el mapa:\n{ruta_resuelta}\n\nDetalle: {e}",
+                parent=self,
+            )
+            return
         self.incidencias_img = ImageTk.PhotoImage(img)
         self.incidencias_canvas.create_image(0, 0, anchor="nw", image=self.incidencias_img)
         self.incidencias_canvas.config(scrollregion=(0, 0, img.width, img.height))
@@ -5081,6 +5345,59 @@ class ResamaniaApp(tk.Tk):
             self.incidencias_machine_items[mid] = item
             self.incidencias_machine_area[mid] = area_id
         self._incidencias_apply_map_filter(self.incidencias_info_filter_area)
+
+    def _incidencias_resolve_map_path(self, ruta, nombre=None):
+        if not ruta:
+            return ""
+        ruta_norm = os.path.normpath(ruta)
+        if os.path.isabs(ruta_norm) and os.path.exists(ruta_norm):
+            return ruta_norm
+        maps_dir = os.path.join(self.data_dir, "maps")
+        if not os.path.isabs(ruta_norm):
+            candidate = os.path.join(maps_dir, ruta_norm)
+            if os.path.exists(candidate):
+                return candidate
+        base = os.path.basename(ruta_norm)
+        fallback = os.path.join(maps_dir, base)
+        if os.path.exists(fallback):
+            return fallback
+        if nombre:
+            nombre_norm = os.path.normpath(str(nombre))
+            nombre_base = os.path.basename(nombre_norm)
+            candidate = os.path.join(maps_dir, nombre_base)
+            if os.path.exists(candidate):
+                return candidate
+            if not os.path.splitext(nombre_base)[1]:
+                candidate = os.path.join(maps_dir, f"{nombre_base}.png")
+                if os.path.exists(candidate):
+                    return candidate
+        return ""
+
+    def _incidencias_resolve_reporte_path(self, ruta):
+        if not ruta:
+            return ""
+        ruta_norm = os.path.normpath(ruta)
+        reports_dir = os.path.join(self.data_dir, "incidencias_reportes")
+        if os.path.isabs(ruta_norm) and os.path.exists(ruta_norm):
+            return ruta_norm
+        if not os.path.isabs(ruta_norm):
+            candidate = os.path.join(reports_dir, ruta_norm)
+            if os.path.exists(candidate):
+                return candidate
+        base = os.path.basename(ruta_norm)
+        candidate = os.path.join(reports_dir, base)
+        if os.path.exists(candidate):
+            return candidate
+        return ""
+
+    def _incidencias_store_reporte_path(self, ruta_resuelta):
+        if not ruta_resuelta:
+            return ""
+        reports_dir = os.path.normpath(os.path.join(self.data_dir, "incidencias_reportes"))
+        ruta_norm = os.path.normpath(ruta_resuelta)
+        if ruta_norm.startswith(reports_dir + os.sep) or ruta_norm == reports_dir:
+            return os.path.basename(ruta_norm)
+        return ruta_resuelta
 
     def incidencias_asignar_area(self):
         if not self._incidencias_pin_ok():
@@ -5463,6 +5780,13 @@ class ResamaniaApp(tk.Tk):
                 serie,
                 numero,
             ) = inc
+            if reporte_path:
+                resolved = self._incidencias_resolve_reporte_path(reporte_path)
+                if resolved:
+                    stored = self._incidencias_store_reporte_path(resolved)
+                    if stored and stored != reporte_path:
+                        self.incidencias_db.update_incidencia_reporte(inc_id, stored)
+                    reporte_path = stored
             if filtro_estado == "VISTO_PENDIENTE":
                 if estado not in ("VISTO", "PENDIENTE"):
                     continue
@@ -6157,11 +6481,7 @@ class ResamaniaApp(tk.Tk):
 
     def exportar_excel(self):
         try:
-            pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
-            if pin is None:
-                return
-            if pin.strip() != get_security_code():
-                messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
+            if not self._security_pin_ok():
                 return
 
             pestana_activa = self.notebook.select()
@@ -6269,6 +6589,8 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
         """
         Abre Outlook con un borrador para felicitar cumpleanos (1 vez por año).
         """
+        if not self._security_pin_ok():
+            return
         self._bring_to_front()
         try:
             df = obtener_cumpleanos_hoy()
@@ -6522,6 +6844,8 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
         """
         Abre borrador Outlook con el Excel adjunto de la pestaña Avanza Fit.
         """
+        if not self._security_pin_ok():
+            return
         df = self.dataframes.get("Avanza Fit")
         if df is None or df.empty:
             messagebox.showwarning("Sin datos", "No hay datos cargados en la pestaña Avanza Fit.")

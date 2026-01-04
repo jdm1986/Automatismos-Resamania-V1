@@ -124,6 +124,12 @@ class IncidenciasDB:
             cur.execute("DELETE FROM inc_mapas WHERE id=?", (mapa_id,))
             conn.commit()
 
+    def update_map_path(self, mapa_id, ruta):
+        with self._connect() as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE inc_mapas SET ruta=? WHERE id=?", (ruta, mapa_id))
+            conn.commit()
+
     def add_area(self, mapa_id, nombre, x1, y1, x2, y2, color):
         with self._connect() as conn:
             cur = conn.cursor()
