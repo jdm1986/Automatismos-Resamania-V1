@@ -15,6 +15,7 @@ import urllib.parse
 import webbrowser
 import shutil
 import random
+import traceback
 from logic.wizville import procesar_wizville
 from logic.accesos import procesar_accesos_dobles, procesar_accesos_descuadrados, procesar_salidas_pmr_no_autorizadas, \
     procesar_morosos_accediendo
@@ -192,6 +193,7 @@ class ResamaniaApp(tk.Tk):
         self.auto_refresh_last_error = None
         self.auto_refresh_last_error_shown = None
         self.local_cleanup_attempts = 0
+        self.db_lock_path = None
 
         self.create_widgets()
         if self.folder_path:
@@ -202,6 +204,12 @@ class ResamaniaApp(tk.Tk):
             self.load_data()
         self.after(500, self.update_blink_states)
         self._schedule_auto_refresh()
+
+    def report_callback_exception(self, exc, val, tb):
+        if isinstance(val, RuntimeError) and "Base de datos ocupada" in str(val):
+            messagebox.showwarning("Incidencias", str(val), parent=self)
+            return
+        traceback.print_exception(exc, val, tb)
 
     def create_widgets(self):
         top_frame = tk.Frame(self)
@@ -1128,7 +1136,7 @@ class ResamaniaApp(tk.Tk):
             accesos = load_data_file(self.folder_path, "ACCESOS")
             self.raw_accesos = accesos.copy()
             incidencias = load_data_file(self.folder_path, "IMPAGOS")
-            self.sync_impagos(incidencias)
+            self.sync_impagos(incidencias, show_messages=show_messages)
 
             self.mostrar_en_tabla("Wizville", procesar_wizville(resumen, accesos))
             self.mostrar_en_tabla("Accesos Dobles", procesar_accesos_dobles(resumen, accesos))
@@ -1156,6 +1164,46 @@ class ResamaniaApp(tk.Tk):
                 self.auto_refresh_last_error = str(e)
             return False
 
+    def _db_lock_file(self):
+        if not self.data_dir:
+            return ""
+        if not self.db_lock_path:
+            self.db_lock_path = os.path.join(self.data_dir, "db.lock")
+        return self.db_lock_path
+
+    def _acquire_db_lock(self, stale_seconds=120):
+        lock_path = self._db_lock_file()
+        if not lock_path:
+            return False
+        now = time.time()
+        for _ in range(2):
+            try:
+                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                with os.fdopen(fd, "w") as f:
+                    f.write(f"{os.getpid()}|{now}\n")
+                return True
+            except FileExistsError:
+                try:
+                    mtime = os.path.getmtime(lock_path)
+                    if now - mtime > stale_seconds:
+                        os.remove(lock_path)
+                        continue
+                except Exception:
+                    pass
+                return False
+            except Exception:
+                return False
+        return False
+
+    def _release_db_lock(self):
+        lock_path = self._db_lock_file()
+        if not lock_path:
+            return
+        try:
+            os.remove(lock_path)
+        except Exception:
+            pass
+
     def refresh_persistent_data(self, show_messages=True):
         if not self.data_dir:
             return False
@@ -1173,6 +1221,10 @@ class ResamaniaApp(tk.Tk):
             self.cargar_pmr_advertencias()
             if hasattr(self, "incidencias_canvas") and self.incidencias_canvas:
                 self.incidencias_cargar_listado_mapas()
+                if self.incidencias_panel_mode == "incidencias":
+                    self.incidencias_gestion_incidencias()
+                elif self.incidencias_panel_mode == "machines":
+                    self.incidencias_info_maquinas(self.incidencias_info_filter_area)
             return True
         except Exception as e:
             if show_messages:
@@ -3734,13 +3786,26 @@ class ResamaniaApp(tk.Tk):
         if self.folder_path:
             try:
                 incidencias = load_data_file(self.folder_path, "IMPAGOS")
-                self.sync_impagos(incidencias)
+                self.sync_impagos(incidencias, show_messages=True)
             except Exception as e:
                 messagebox.showerror("Impagos", f"No se pudo cargar IMPAGOS.csv: {e}")
         else:
             messagebox.showwarning("Sin carpeta", "Selecciona primero la carpeta de datos.")
 
-    def sync_impagos(self, df):
+    def sync_impagos(self, df, show_messages=True):
+        if not self.impagos_db:
+            if show_messages:
+                messagebox.showwarning("Impagos", "Base de datos no inicializada.")
+            return
+        lock_acquired = self._acquire_db_lock()
+        if not lock_acquired:
+            if show_messages:
+                messagebox.showwarning(
+                    "Impagos",
+                    "Otro equipo está actualizando impagos. Reintenta en unos segundos.",
+                )
+            self.refresh_impagos_view()
+            return
         try:
             resumen_map = None
             if self.resumen_df is not None:
@@ -3771,7 +3836,10 @@ class ResamaniaApp(tk.Tk):
             if hasattr(self, "suspensiones"):
                 self._suspensiones_actualizar_devolucion()
         except Exception as e:
-            messagebox.showerror("Impagos", f"Error sincronizando impagos: {e}")
+            if show_messages:
+                messagebox.showerror("Impagos", f"Error sincronizando impagos: {e}")
+        finally:
+            self._release_db_lock()
 
     def impagos_set_view(self, view_name):
         self.impagos_view.set(view_name)
