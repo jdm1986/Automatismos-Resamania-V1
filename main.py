@@ -243,14 +243,6 @@ class ResamaniaApp(tk.Tk):
         self.instrucciones_text = instrucciones
         self.instrucciones_nota = "NOTA: Una vez seleccionada una carpeta, el programa la mantiene por defecto hasta que elijas otra."
 
-        # Logo JDM Developer (izquierda)
-        logo_path = get_logo_path("logodeveloper.png")
-        if os.path.exists(logo_path):
-            img = Image.open(logo_path)
-            img = img.resize((140, 140))
-            self.logo_img = ImageTk.PhotoImage(img)
-            tk.Label(left_frame, image=self.logo_img).pack(expand=True)
-
         # Logo Fitness Park (centro)
         logo_fp_path = get_logo_path("LogoFpark.png")
         if os.path.exists(logo_fp_path):
@@ -258,11 +250,6 @@ class ResamaniaApp(tk.Tk):
             img_fp = img_fp.resize((550, 140))
             self.logo_fp_img = ImageTk.PhotoImage(img_fp)
             tk.Label(center_frame, image=self.logo_fp_img).pack(expand=True)
-
-        # Logo JDM Developer (derecha)
-        if os.path.exists(logo_path):
-            self.logo_img_right = ImageTk.PhotoImage(img)
-            tk.Label(right_frame, image=self.logo_img_right).pack(expand=True)
 
         botones_frame = tk.Frame(self)
         botones_frame.pack(pady=5)
