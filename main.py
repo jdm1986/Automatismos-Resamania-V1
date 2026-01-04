@@ -233,7 +233,7 @@ class ResamaniaApp(tk.Tk):
         logo_fp_path = get_logo_path("LogoFpark.png")
         if os.path.exists(logo_fp_path):
             img_fp = Image.open(logo_fp_path)
-            img_fp = img_fp.resize((650, 140))
+            img_fp = img_fp.resize((550, 140))
             self.logo_fp_img = ImageTk.PhotoImage(img_fp)
             tk.Label(center_frame, image=self.logo_fp_img).pack(expand=True)
 
