@@ -187,7 +187,7 @@ class ResamaniaApp(tk.Tk):
         self.pmr_df_raw = None
         self.accesos_grupo_actual = None
 
-        self.auto_refresh_interval_ms = 120000
+        self.auto_refresh_interval_ms = 300000
         self.auto_refresh_job = None
         self.auto_refresh_last_error = None
         self.auto_refresh_last_error_shown = None
