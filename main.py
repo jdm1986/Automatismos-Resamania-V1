@@ -101,47 +101,39 @@ class ResamaniaApp(tk.Tk):
         self.dataframes = {}
         self.raw_accesos = None
         self.resumen_df = None
-        self.data_dir = get_data_dir()
-        if self.folder_path:
-            self.data_dir = os.path.join(self.folder_path, "data")
-            set_data_dir(self.data_dir)
-        try:
-            os.makedirs(self.data_dir, exist_ok=True)
-        except Exception:
-            self.data_dir = "data"
-            os.makedirs(self.data_dir, exist_ok=True)
+        self.data_dir = ""
 
         # Datos de prestamos
-        self.prestamos_file = os.path.join(self.data_dir, "prestamos.json")
+        self.prestamos_file = ""
         self.prestamos = []
-        self.clientes_ext_file = os.path.join(self.data_dir, "clientes_ext.json")
+        self.clientes_ext_file = ""
         self.clientes_ext = []
         self.prestamos_filtro_activo = False
-        self.incidencias_socios_file = os.path.join(self.data_dir, "incidencias_socios.json")
+        self.incidencias_socios_file = ""
         self.incidencias_socios = []
         self.incidencias_socios_filtro = "VISTO_PENDIENTE"
         self.incidencias_socios_encontrado = None
         self.incidencias_socios_filtro_codigo = None
         self.incidencias_filtro_estado = "TODAS"
-        self.objetos_taquillas_file = os.path.join(self.data_dir, "objetos_taquillas.json")
+        self.objetos_taquillas_file = ""
         self.objetos_taquillas = []
         self.objetos_taquillas_blink_job = None
         self.objetos_taquillas_blink_on = False
-        self.bajas_file = os.path.join(self.data_dir, "bajas.json")
+        self.bajas_file = ""
         self.bajas = []
         self.bajas_view = "TODOS"
         self.bajas_cliente_filter = ""
         self.bajas_impagos_set = set()
-        self.suspensiones_file = os.path.join(self.data_dir, "suspensiones.json")
+        self.suspensiones_file = ""
         self.suspensiones = []
         self.suspensiones_view = "ACTIVAS"
         self.suspensiones_cliente_filter = ""
         self.suspensiones_impagos_set = set()
 
         # Felicitaciones (persistencia anual)
-        self.felicitaciones_file = os.path.join(self.data_dir, "felicitaciones.json")
+        self.felicitaciones_file = ""
         self.felicitaciones_enviadas = {}
-        self.avanza_fit_envios_file = os.path.join(self.data_dir, "avanza_fit_envios.json")
+        self.avanza_fit_envios_file = ""
         self.avanza_fit_envios = {}
 
         # Parpadeo de botones
@@ -149,19 +141,19 @@ class ResamaniaApp(tk.Tk):
         self.blink_interval_ms = 650
 
         # Impagos (SQLite)
-        self.impagos_db = ImpagosDB(os.path.join(self.data_dir, "impagos.db"))
+        self.impagos_db = None
         self.impagos_last_export = None
         self.impagos_view = tk.StringVar(value="actuales")
 
         # Staff
-        self.staff_file = os.path.join(self.data_dir, "staff.json")
+        self.staff_file = ""
         self.staff = []
         self.staff_menu = None
         self.staff_tree = None
         self.staff_filter_var = None
 
         # Incidencias Club
-        self.incidencias_db = IncidenciasDB(os.path.join(self.data_dir, "incidencias.db"))
+        self.incidencias_db = None
         self.incidencias_mapas = []
         self.incidencias_map_index = 0
         self.incidencias_img = None
@@ -188,9 +180,9 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_pan_active = False
 
         # Salidas PMR autorizados/advertidos
-        self.pmr_autorizados_file = os.path.join(self.data_dir, "pmr_autorizados.json")
+        self.pmr_autorizados_file = ""
         self.pmr_autorizados = set()
-        self.pmr_advertencias_file = os.path.join(self.data_dir, "pmr_advertencias.json")
+        self.pmr_advertencias_file = ""
         self.pmr_advertencias = {}
         self.pmr_df_raw = None
         self.accesos_grupo_actual = None
@@ -199,20 +191,14 @@ class ResamaniaApp(tk.Tk):
         self.auto_refresh_job = None
         self.auto_refresh_last_error = None
         self.auto_refresh_last_error_shown = None
+        self.local_cleanup_attempts = 0
 
         self.create_widgets()
-        self.cargar_clientes_ext()
-        self.cargar_prestamos_json()
-        self.cargar_incidencias_socios()
-        self.cargar_objetos_taquillas()
-        self.cargar_bajas()
-        self.cargar_suspensiones()
-        self.cargar_felicitaciones()
-        self.cargar_avanza_fit_envios()
-        self.cargar_staff()
-        self.cargar_pmr_autorizados()
-        self.cargar_pmr_advertencias()
         if self.folder_path:
+            self.data_dir = os.path.join(self.folder_path, "data")
+            set_data_dir(self.data_dir)
+            self._set_data_dir(self.data_dir, show_message=False)
+            self.refresh_persistent_data(show_messages=False)
             self.load_data()
         self.after(500, self.update_blink_states)
         self._schedule_auto_refresh()
@@ -1067,10 +1053,19 @@ class ResamaniaApp(tk.Tk):
             return
         if target_dir and os.path.normcase(local_dir) == os.path.normcase(target_dir):
             return
+        def onerror(func, path, exc_info):
+            try:
+                os.chmod(path, 0o700)
+                func(path)
+            except Exception:
+                pass
+
         try:
-            shutil.rmtree(local_dir)
+            shutil.rmtree(local_dir, onerror=onerror)
         except Exception:
-            pass
+            self.local_cleanup_attempts += 1
+            if self.local_cleanup_attempts <= 3:
+                self.after(1500, self._cleanup_local_data_dir)
 
     def mostrar_rutas_datos(self):
         if not self._security_pin_ok():
@@ -1162,6 +1157,8 @@ class ResamaniaApp(tk.Tk):
             return False
 
     def refresh_persistent_data(self, show_messages=True):
+        if not self.data_dir:
+            return False
         try:
             self.cargar_clientes_ext()
             self.cargar_prestamos_json()
@@ -5220,6 +5217,9 @@ class ResamaniaApp(tk.Tk):
         webbrowser.open(url)
 
     def incidencias_cargar_listado_mapas(self):
+        if not self.incidencias_db:
+            self.incidencias_mapas = []
+            return
         self.incidencias_mapas = self.incidencias_db.list_maps()
         self.incidencias_map_index = 0
         if self.incidencias_mapas:
