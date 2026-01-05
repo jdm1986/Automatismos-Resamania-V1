@@ -78,6 +78,20 @@ def set_data_dir(path):
     _write_config(data)
 
 
+def get_user_role():
+    data = _read_config()
+    role = str(data.get("user_role", "MANAGER")).upper()
+    if role not in ("MANAGER", "STAFF"):
+        role = "MANAGER"
+    return role
+
+
+def set_user_role(role):
+    data = _read_config()
+    data["user_role"] = role
+    _write_config(data)
+
+
 def get_logo_path(filename):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, filename)
@@ -139,6 +153,10 @@ class ResamaniaApp(tk.Tk):
         # Parpadeo de botones
         self.blink_states = {}
         self.blink_interval_ms = 650
+        self.user_role = get_user_role()
+        self.staff_write_areas = {"prestamos", "objetos_taquillas"}
+        self._last_allowed_tab = None
+        self._suppress_tab_guard = False
 
         # Impagos (SQLite)
         self.impagos_db = None
@@ -203,6 +221,90 @@ class ResamaniaApp(tk.Tk):
             self.load_data()
         self.after(500, self.update_blink_states)
         self._schedule_auto_refresh()
+
+    def _role_label(self, area):
+        labels = {
+            "prestamos": "Prestamos",
+            "incidencias_club": "Incidencias Club",
+            "objetos_taquillas": "Objetos Taquillas",
+            "manager": "Gestion",
+        }
+        return labels.get(area, "esta seccion")
+
+    def _can_write(self, area):
+        if self.user_role == "MANAGER":
+            return True
+        return area in self.staff_write_areas
+
+    def _require_write(self, area):
+        if self._can_write(area):
+            return True
+        label = self._role_label(area)
+        messagebox.showwarning("Permisos", f"Solo el MANAGER puede acceder a {label}.", parent=self)
+        return False
+
+    def _require_manager_access(self, feature="esta funcion"):
+        if self.user_role == "MANAGER":
+            return True
+        messagebox.showwarning("Permisos", f"Solo el MANAGER puede acceder a {feature}.", parent=self)
+        return False
+
+    def _update_role_button(self):
+        if hasattr(self, "role_button") and self.role_button:
+            self.role_button.config(text=f"ROL: {self.user_role}")
+
+    def _toggle_role(self):
+        if not self._security_pin_ok():
+            return
+        self.user_role = "STAFF" if self.user_role == "MANAGER" else "MANAGER"
+        set_user_role(self.user_role)
+        self._update_role_button()
+        self._apply_role_ui()
+        messagebox.showinfo("Rol", f"Rol actual: {self.user_role}", parent=self)
+
+    def _apply_role_ui(self):
+        if self.user_role == "STAFF":
+            if self.staff_menu:
+                try:
+                    self.staff_menu.entryconfig("GESTIONAR STAFF", state="disabled")
+                except Exception:
+                    pass
+            for btn in [
+                getattr(self, "btn_inc_cargar_mapas", None),
+                getattr(self, "btn_inc_borrar_mapa", None),
+                getattr(self, "btn_mapa_anterior", None),
+                getattr(self, "btn_mapa_siguiente", None),
+                getattr(self, "btn_inc_asignar_area", None),
+                getattr(self, "btn_inc_editar_area", None),
+                getattr(self, "btn_inc_listar_maquina", None),
+                getattr(self, "btn_inc_info_maquinas", None),
+                getattr(self, "btn_inc_crear_incidencia", None),
+                getattr(self, "btn_inc_gestion_incidencias", None),
+                getattr(self, "btn_inc_vista", None),
+            ]:
+                if btn:
+                    btn.configure(state="disabled")
+        else:
+            if self.staff_menu:
+                try:
+                    self.staff_menu.entryconfig("GESTIONAR STAFF", state="normal")
+                except Exception:
+                    pass
+            for btn in [
+                getattr(self, "btn_inc_cargar_mapas", None),
+                getattr(self, "btn_inc_borrar_mapa", None),
+                getattr(self, "btn_mapa_anterior", None),
+                getattr(self, "btn_mapa_siguiente", None),
+                getattr(self, "btn_inc_asignar_area", None),
+                getattr(self, "btn_inc_editar_area", None),
+                getattr(self, "btn_inc_listar_maquina", None),
+                getattr(self, "btn_inc_info_maquinas", None),
+                getattr(self, "btn_inc_crear_incidencia", None),
+                getattr(self, "btn_inc_gestion_incidencias", None),
+                getattr(self, "btn_inc_vista", None),
+            ]:
+                if btn:
+                    btn.configure(state="normal")
 
     def create_widgets(self):
         top_frame = tk.Frame(self)
@@ -384,6 +486,7 @@ class ResamaniaApp(tk.Tk):
                 self.notebook.hide(tab)
             if tab_name == "Impagos":
                 self.notebook.hide(tab)
+        self._apply_role_ui()
 
     def create_table(self, tab, parent=None):
         container_parent = parent or tab
@@ -952,6 +1055,8 @@ class ResamaniaApp(tk.Tk):
         return res["item"]
 
     def mostrar_instrucciones(self):
+        if not self._require_manager_access("Instrucciones"):
+            return
         texto = self.instrucciones_text if hasattr(self, "instrucciones_text") else ""
         nota = self.instrucciones_nota if hasattr(self, "instrucciones_nota") else ""
         win = tk.Toplevel(self)
@@ -975,9 +1080,14 @@ class ResamaniaApp(tk.Tk):
             return
         if not self.gestion_clientes_frame.winfo_ismapped():
             self.gestion_clientes_frame.pack(pady=4, fill="x", before=self.notebook)
-        tab = self.tabs.get("Incidencias Socios")
-        if tab:
-            self.notebook.select(tab)
+        if self.user_role == "MANAGER":
+            tab = self.tabs.get("Incidencias Socios")
+            if tab:
+                self.notebook.select(tab)
+        else:
+            tab = self.tabs.get("Prestamos")
+            if tab:
+                self.notebook.select(tab)
 
     def ocultar_gestion_clientes(self):
         if hasattr(self, "gestion_clientes_frame") and self.gestion_clientes_frame.winfo_ismapped():
@@ -995,6 +1105,8 @@ class ResamaniaApp(tk.Tk):
             self.after(0, self.incidencias_info_maquinas)
 
     def ir_a_incidencias_socios(self):
+        if not self._require_manager_access("Incidencias socios"):
+            return
         tab = self.tabs.get("Incidencias Socios")
         if tab:
             self.incidencias_socios_filtro = "VISTO_PENDIENTE"
@@ -1003,20 +1115,22 @@ class ResamaniaApp(tk.Tk):
             self.notebook.select(tab)
 
     def ir_a_gestion_bajas(self):
-        if not self._security_pin_ok():
+        if not self._require_manager_access("Gestion bajas"):
             return
         tab = self.tabs.get("Gestion Bajas")
         if tab:
             self.notebook.select(tab)
 
     def ir_a_gestion_suspensiones(self):
-        if not self._security_pin_ok():
+        if not self._require_manager_access("Gestion suspensiones"):
             return
         tab = self.tabs.get("Gestion Suspensiones")
         if tab:
             self.notebook.select(tab)
 
     def select_folder(self):
+        if not self._require_manager_access("Seleccionar carpeta"):
+            return
         folder = filedialog.askdirectory()
         if folder:
             self.folder_path = folder
@@ -1077,7 +1191,7 @@ class ResamaniaApp(tk.Tk):
                 self.after(1500, self._cleanup_local_data_dir)
 
     def mostrar_rutas_datos(self):
-        if not self._security_pin_ok():
+        if not self._require_manager_access("Rutas datos"):
             return
         config_path = CONFIG_PATH
         carpeta_csv = self.folder_path or "(no seleccionada)"
@@ -1233,6 +1347,8 @@ class ResamaniaApp(tk.Tk):
             return False
 
     def refresh_all_data(self, show_messages=True):
+        if show_messages and not self._require_manager_access("Actualizar datos"):
+            return False
         csv_ok = self.load_data(show_messages=show_messages)
         self.refresh_persistent_data(show_messages=show_messages)
         return csv_ok
@@ -1475,221 +1591,18 @@ class ResamaniaApp(tk.Tk):
             info_text += f" | Pendiente: {materiales or 'material sin devolver'}"
             messagebox.showwarning("Material pendiente", f"El cliente {codigo} tiene material sin devolver: {materiales}")
             if len(pendientes) >= 2:
-                self._resolver_pendientes_multples(pendientes, codigo)
-
-        # Aviso si fue liberado por PIN anteriormente
-        perdonado = any(p.get("codigo") == codigo and p.get("liberado_pin") for p in self.prestamos)
-        if perdonado:
-            self.lbl_perdon.config(text="ATENCIÓN, ESTE CLIENTE HA SIDO PERDONADO UNA VEZ")
-
-        self.lbl_info.config(text=info_text)
-
-    def _resolver_pendientes_multples(self, pendientes, codigo):
-        self._bring_to_front()
-        # Pregunta si quiere marcar uno como devuelto
-        if not messagebox.askyesno(
-            "Pendientes multiples",
-            f"El cliente {codigo} tiene {len(pendientes)} préstamos sin devolver.\nQuieres marcar uno como devuelto ahora?"
-        ):
-            return
-
-        # Ventana de selección simple
-        win = tk.Toplevel(self)
-        win.title("Selecciona préstamo a marcar devuelto")
-        tk.Label(win, text="Selecciona el préstamo devuelto:").pack(padx=10, pady=5)
-        listbox = tk.Listbox(win, height=min(10, len(pendientes)), exportselection=False)
-        listbox.pack(fill="both", expand=True, padx=10, pady=5)
-
-        # Mapea índice a id
-        ids = []
-        for p in pendientes:
-            resumen = f"{p.get('fecha','')} | {p.get('material','')}"
-            listbox.insert(tk.END, resumen)
-            ids.append(p.get("id"))
-
-        def confirmar():
-            sel = listbox.curselection()
-            if not sel:
-                messagebox.showwarning("Sin seleccion", "Elige un préstamo.")
-                return
-            idx = sel[0]
-            prestamo_id = ids[idx]
-            for p in self.prestamos:
-                if p.get("id") == prestamo_id:
-                    p["devuelto"] = True
-                    break
-            self.guardar_prestamos_json()
-            self.refrescar_prestamos_tree()
-            win.destroy()
-
-        tk.Button(win, text="Marcar devuelto", command=confirmar).pack(pady=5)
-        tk.Button(win, text="Cerrar", command=win.destroy).pack(pady=2)
-
-    def toggle_prestamos_vista(self):
-        self.prestamos_filtro_activo = not self.prestamos_filtro_activo
-        if self.prestamos_filtro_activo:
-            codigo = ""
-            if getattr(self, "prestamo_encontrado", None):
-                codigo = self.prestamo_encontrado.get("codigo", "")
-            else:
-                codigo = self.prestamo_codigo.get().strip()
-            if not codigo:
-                messagebox.showwarning("Sin cliente", "Busca un cliente para ver su vista individual.")
-                self.prestamos_filtro_activo = False
-                return
-        self.refrescar_prestamos_tree()
-
-    def on_prestamo_doble_click(self, event):
-        tree = self.tree_prestamos
-        item = tree.identify_row(event.y)
-        if not item:
-            return
-        valores = tree.item(item)["values"]
-        if not valores:
-            return
-        codigo = str(valores[0]).strip()
-        if not codigo:
-            return
-        self.prestamo_codigo.delete(0, tk.END)
-        self.prestamo_codigo.insert(0, codigo)
-        self.buscar_cliente_prestamo()
-
-    def nuevo_prestamo(self):
-        if not getattr(self, "prestamo_encontrado", None):
-            messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
-            return
-        staff = self._staff_select("Prestamo", "Quien hace el prestamo?")
-        if not staff:
-            return
-        prestado_por = self._staff_display_name(staff)
-        material = self._incidencias_prompt_text("Prestamo", "Que material se presta?")
-        if material is None:
-            return
-        self.prestamo_material.delete(0, tk.END)
-        self.prestamo_material.insert(0, material)
-        self.guardar_prestamo(prestado_por=prestado_por)
-
-    def editar_cliente_manual(self):
-        """
-        Permite editar los datos de un cliente manual (solo los que viven en clientes_ext).
-        Requiere tener un cliente buscado y que exista en la base manual.
-        """
-        if not getattr(self, "prestamo_encontrado", None):
-            messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
-            return
-        codigo = self.prestamo_encontrado.get("codigo")
-        ext = [c for c in self.clientes_ext if c.get("codigo") == codigo]
-        if not ext:
-            messagebox.showwarning("No editable", "Este cliente proviene de RESUMEN CLIENTE y no se puede modificar.")
-            return
-        cliente = ext[0]
-        nombre = self._pedir_campo("Nombre", "Introduce el nombre:", obligatorio=True, validar_nombre=True)
-        if nombre is None:
-            return
-        apellidos = self._pedir_campo("Apellidos", "Introduce los apellidos:")
-        if apellidos is None:
-            return
-        email = self._pedir_campo("Email", "Introduce el email:")
-        if email is None:
-            return
-        movil = self._pedir_campo("Movil", "Introduce el movil (opcional):", obligatorio=False) or ""
-        movil = self._normalizar_movil(movil)
-
-        cliente.update({
-            "nombre": nombre.strip(),
-            "apellidos": apellidos.strip(),
-            "email": email.strip(),
-            "movil": movil.strip()
-        })
-        self.guardar_clientes_ext()
-        # Actualiza en memoria por si se sigue usando
-        self.prestamo_encontrado = cliente.copy()
-        self.lbl_info.config(text=f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}")
-        messagebox.showinfo("Actualizado", "Datos del cliente manual actualizados.")
-
-    def agregar_cliente_otro_fp(self):
-        """
-        Alta directa de cliente externo (otro fitness park) sin buscar primero.
-        """
-        self._bring_to_front()
-        codigo = self._pedir_campo("Numero de cliente", "Introduce el numero de cliente:")
-        if codigo is None or not codigo.strip():
-            return
-        codigo = codigo.strip()
-
-        # Si está en resumen, no permitir
-        if self.resumen_df is not None:
-            colmap = {self._norm(c): c for c in self.resumen_df.columns}
-            col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
-            if col_codigo:
-                if any(str(val).strip() == codigo for val in self.resumen_df[col_codigo].fillna("")):
-                    messagebox.showwarning("No permitido", "Este cliente ya existe en RESUMEN CLIENTE y no se puede agregar manualmente.")
+                resp = messagebox.askyesno(
+                    "Limite de prestamos",
+                    f"El cliente {codigo} ya tiene {len(pendientes)} prestamos sin devolver.\n"
+                    "Desea liberar los pendientes para permitir otro prestamo?"
+                )
+                if not resp:
                     return
-
-        nombre = self._pedir_campo("Nombre", "Introduce el nombre:", obligatorio=True, validar_nombre=True)
-        if nombre is None:
-            return
-        apellidos = self._pedir_campo("Apellidos", "Introduce los apellidos:")
-        if apellidos is None:
-            return
-        email = self._pedir_campo("Email", "Introduce el email:")
-        if email is None:
-            return
-        movil = self._pedir_campo("Movil", "Introduce el movil (opcional):", obligatorio=False) or ""
-        movil = self._normalizar_movil(movil)
-
-        cliente = {
-            "codigo": codigo,
-            "nombre": nombre.strip(),
-            "apellidos": apellidos.strip(),
-            "email": email.strip(),
-            "movil": movil.strip(),
-        }
-        self.clientes_ext = [c for c in self.clientes_ext if c.get("codigo") != codigo] + [cliente]
-        self.guardar_clientes_ext()
-        self.prestamo_encontrado = cliente.copy()
-        self.lbl_info.config(text=f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}")
-        self.lbl_perdon.config(text="")
-        messagebox.showinfo("Cliente agregado", f"Cliente {codigo} anadido como externo.")
-
-    def guardar_prestamo(self, prestado_por=""):
-        if not getattr(self, "prestamo_encontrado", None):
-            messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
-            return
-        material = self.prestamo_material.get().strip()
-        if not material:
-            messagebox.showwarning("Sin material", "Escribe el material prestado.")
-            return
-        # Evitar que peguen un número de cliente en el campo de material
-        if re.fullmatch(r"[cC]u\d+", material):
-            messagebox.showwarning(
-                "Material inválido",
-                "Has puesto un número de cliente en 'Material prestado'. Vuelve a intentarlo."
-            )
-            return
-
-        codigo = self.prestamo_encontrado.get("codigo")
-        pendientes = [p for p in self.prestamos if p.get("codigo") == codigo and not p.get("devuelto")]
-
-        # Bloqueo a partir de 2 pendientes
-        if len(pendientes) >= 2:
-            resp = messagebox.askyesno(
-                "Limite de prestamos",
-                f"El cliente {codigo} ya tiene {len(pendientes)} prestamos sin devolver.\n"
-                "Introducir codigo de seguridad para liberar y permitir otro prestamo?"
-            )
-            if not resp:
-                return
-            self._bring_to_front()
-            pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
-            if pin is None or pin.strip() != get_security_code():
-                messagebox.showerror("Código incorrecto", "No se liberaron los préstamos pendientes.")
-                return
-            for p in pendientes:
-                p["devuelto"] = True
-                p["liberado_pin"] = True
-            self.guardar_prestamos_json()
-            self.refrescar_prestamos_tree()
+                for p in pendientes:
+                    p["devuelto"] = True
+                    p["liberado_pin"] = True
+                self.guardar_prestamos_json()
+                self.refrescar_prestamos_tree()
 
         prestamo = {
             "id": uuid.uuid4().hex,
@@ -4134,7 +4047,7 @@ class ResamaniaApp(tk.Tk):
             '</div>'
         )
     def ir_a_impagos(self):
-        if not self._security_pin_ok():
+        if not self._require_manager_access("Impagos"):
             return
         tab = self.tabs.get("Impagos")
         if tab:
@@ -4142,10 +4055,34 @@ class ResamaniaApp(tk.Tk):
             self.notebook.select(tab)
 
     def on_tab_changed(self, event):
+        current = self.notebook.select()
+        if self._suppress_tab_guard:
+            self._suppress_tab_guard = False
+        else:
+            tab_name = self.notebook.tab(current, "text")
+            if self.user_role == "STAFF":
+                blocked_tabs = {"Incidencias Socios", "Gestion Bajas", "Gestion Suspensiones"}
+                if tab_name in blocked_tabs:
+                    self._require_manager_access(tab_name)
+                    fallback = self._last_allowed_tab
+                    if fallback:
+                        try:
+                            fallback_name = self.notebook.tab(fallback, "text")
+                        except Exception:
+                            fallback_name = ""
+                        if fallback_name in blocked_tabs:
+                            fallback = None
+                    if not fallback:
+                        fallback = self.tabs.get("Prestamos") or self.tabs.get("Wizville")
+                    if fallback:
+                        self._suppress_tab_guard = True
+                        self.notebook.select(fallback)
+                    return
+        self._last_allowed_tab = current
+
         tab = self.tabs.get("Impagos")
         if not tab:
             return
-        current = self.notebook.select()
         if current != str(tab):
             try:
                 self.notebook.hide(tab)
@@ -4988,19 +4925,28 @@ class ResamaniaApp(tk.Tk):
 
         botones = tk.Frame(frm)
         botones.pack(fill="x", pady=4)
-        tk.Button(botones, text="Cargar Mapas", command=self.incidencias_cargar_mapas).pack(side="left", padx=5)
-        tk.Button(botones, text="Borrar Mapa", command=self.incidencias_borrar_mapa).pack(side="left", padx=5)
+        self.btn_inc_cargar_mapas = tk.Button(botones, text="Cargar Mapas", command=self.incidencias_cargar_mapas)
+        self.btn_inc_cargar_mapas.pack(side="left", padx=5)
+        self.btn_inc_borrar_mapa = tk.Button(botones, text="Borrar Mapa", command=self.incidencias_borrar_mapa)
+        self.btn_inc_borrar_mapa.pack(side="left", padx=5)
         self.btn_mapa_anterior = tk.Button(botones, text="Mapa anterior", command=self.incidencias_mapa_anterior)
         self.btn_mapa_anterior.pack(side="left", padx=5)
         self.btn_mapa_siguiente = tk.Button(botones, text="Mapas", command=self.incidencias_siguiente_mapa)
         self.btn_mapa_siguiente.pack(side="left", padx=5)
-        tk.Button(botones, text="Asignar Área", command=self.incidencias_asignar_area).pack(side="left", padx=5)
-        tk.Button(botones, text="Editar Área", command=self.incidencias_editar_area).pack(side="left", padx=5)
-        tk.Button(botones, text="Listar Máquina", command=self.incidencias_listar_maquina).pack(side="left", padx=5)
-        tk.Button(botones, text="Info máquinas", command=self.incidencias_info_maquinas).pack(side="left", padx=5)
-        tk.Button(botones, text="Crear Incidencia", command=self.incidencias_crear_incidencia, bg="#ffcc80", fg="black").pack(side="left", padx=5)
-        tk.Button(botones, text="Gestión Incidencias", command=self.incidencias_gestion_incidencias, bg="#a5d6a7", fg="black").pack(side="left", padx=5)
+        self.btn_inc_asignar_area = tk.Button(botones, text="Asignar Area", command=self.incidencias_asignar_area)
+        self.btn_inc_asignar_area.pack(side="left", padx=5)
+        self.btn_inc_editar_area = tk.Button(botones, text="Editar Area", command=self.incidencias_editar_area)
+        self.btn_inc_editar_area.pack(side="left", padx=5)
+        self.btn_inc_listar_maquina = tk.Button(botones, text="Listar Maquina", command=self.incidencias_listar_maquina)
+        self.btn_inc_listar_maquina.pack(side="left", padx=5)
+        self.btn_inc_info_maquinas = tk.Button(botones, text="Info maquinas", command=self.incidencias_info_maquinas)
+        self.btn_inc_info_maquinas.pack(side="left", padx=5)
+        self.btn_inc_crear_incidencia = tk.Button(botones, text="Crear Incidencia", command=self.incidencias_crear_incidencia, bg="#ffcc80", fg="black")
+        self.btn_inc_crear_incidencia.pack(side="left", padx=5)
+        self.btn_inc_gestion_incidencias = tk.Button(botones, text="Gestion Incidencias", command=self.incidencias_gestion_incidencias, bg="#a5d6a7", fg="black")
+        self.btn_inc_gestion_incidencias.pack(side="left", padx=5)
         vista_btn = tk.Menubutton(botones, text="VISTA", bg="#bdbdbd", fg="black")
+        self.btn_inc_vista = vista_btn
         vista_menu = tk.Menu(vista_btn, tearoff=0)
         vista_menu.add_command(label="TODAS LAS INCIDENCIAS", command=lambda: self._incidencias_set_filtro_estado("TODAS"))
         vista_menu.add_command(label="PENDIENTES", command=lambda: self._incidencias_set_filtro_estado("PENDIENTE"))
@@ -5064,14 +5010,7 @@ class ResamaniaApp(tk.Tk):
         return True
 
     def _incidencias_pin_ok(self):
-        self._bring_to_front()
-        pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
-        if pin is None:
-            return False
-        if pin.strip() != get_security_code():
-            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
-            return False
-        return True
+        return self._require_write("incidencias_club")
 
     def _incidencias_color(self):
         palette = [
@@ -5620,8 +5559,9 @@ class ResamaniaApp(tk.Tk):
 
         menu = tk.Menu(tree, tearoff=0)
         menu.add_command(label="Copiar", command=lambda: copy_cell(tree.event_context))
-        menu.add_command(label="Editar maquina", command=lambda: edit_machine(tree.event_context))
-        menu.add_command(label="Eliminar maquina", command=lambda: delete_machine(tree.event_context))
+        if self._can_write("incidencias_club"):
+            menu.add_command(label="Editar maquina", command=lambda: edit_machine(tree.event_context))
+            menu.add_command(label="Eliminar maquina", command=lambda: delete_machine(tree.event_context))
         tree.bind("<<TreeviewSelect>>", on_select)
         tree.bind("<Motion>", on_hover)
         tree.bind("<Leave>", on_leave)
@@ -5744,7 +5684,9 @@ class ResamaniaApp(tk.Tk):
         webbrowser.open(f"https://wa.me/{movil}")
 
     def abrir_gestion_staff(self):
-        if not self._incidencias_pin_ok():
+        if not self._require_manager_access("Gestionar staff"):
+            return
+        if not self._security_pin_ok():
             return
         self.cargar_staff()
         tab = self.tabs.get("Staff")
@@ -5945,23 +5887,26 @@ class ResamaniaApp(tk.Tk):
             if not item:
                 return
             menu = tk.Menu(tree, tearoff=0)
-            menu.add_command(label="Modificar Incidencia", command=lambda: self._incidencias_editar_incidencia(int(item)))
-            menu.add_command(label="Eliminar Incidencia", command=lambda: self._incidencias_eliminar_incidencia(int(item)))
-            menu.add_command(label="Modificar Estado", command=lambda: self._incidencias_cambiar_estado(int(item)))
-            menu.add_command(label="Modificar reporte visual", command=lambda: self._incidencias_cambiar_reporte(int(item)))
-            reporte = self.incidencias_inc_map.get(int(item), {}).get("reporte")
-            if reporte:
-                menu.add_command(label="Ver reporte visual", command=lambda: self._incidencias_ver_reporte(reporte))
-                menu.add_command(label="Guardar reporte visual", command=lambda: self._incidencias_guardar_reporte(reporte))
-            creador_movil = self.incidencias_inc_map.get(int(item), {}).get("creador_movil", "")
-            if creador_movil:
-                menu.add_command(label="Abrir chat con trabajador", command=lambda: self._incidencias_chat_trabajador(creador_movil))
+            if self._can_write("incidencias_club"):
+                menu.add_command(label="Modificar Incidencia", command=lambda: self._incidencias_editar_incidencia(int(item)))
+                menu.add_command(label="Eliminar Incidencia", command=lambda: self._incidencias_eliminar_incidencia(int(item)))
+                menu.add_command(label="Modificar Estado", command=lambda: self._incidencias_cambiar_estado(int(item)))
+                menu.add_command(label="Modificar reporte visual", command=lambda: self._incidencias_cambiar_reporte(int(item)))
+                reporte = self.incidencias_inc_map.get(int(item), {}).get("reporte")
+                if reporte:
+                    menu.add_command(label="Ver reporte visual", command=lambda: self._incidencias_ver_reporte(reporte))
+                    menu.add_command(label="Guardar reporte visual", command=lambda: self._incidencias_guardar_reporte(reporte))
+                creador_movil = self.incidencias_inc_map.get(int(item), {}).get("creador_movil", "")
+                if creador_movil:
+                    menu.add_command(label="Abrir chat con trabajador", command=lambda: self._incidencias_chat_trabajador(creador_movil))
             menu.add_command(label="Copiar", command=lambda: copy_cell(event))
             menu.post(event.x_root, event.y_root)
 
         def on_double_click(event):
             item = tree.identify_row(event.y)
             if not item:
+                return
+            if not self._can_write("incidencias_club"):
                 return
             self._incidencias_cambiar_estado(int(item))
 
@@ -6121,6 +6066,8 @@ class ResamaniaApp(tk.Tk):
                 return aid
         return None
     def _incidencias_editar_incidencia(self, inc_id):
+        if not self._require_write("incidencias_club"):
+            return
         self._bring_to_front()
         elemento = self._incidencias_prompt_text("Incidencia", "Material/elemento:")
         descripcion = self._incidencias_prompt_text("Incidencia", "Describe la incidencia:")
@@ -6143,6 +6090,8 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_gestion_incidencias()
 
     def _incidencias_cambiar_reporte(self, inc_id):
+        if not self._require_write("incidencias_club"):
+            return
         self._bring_to_front()
         reporte_actual = None
         if hasattr(self, "incidencias_inc_map"):
@@ -6159,6 +6108,8 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_gestion_incidencias()
 
     def _incidencias_eliminar_incidencia(self, inc_id):
+        if not self._require_write("incidencias_club"):
+            return
         self._bring_to_front()
         if messagebox.askyesno("Eliminar", "Eliminar incidencia?", parent=self):
             reporte = None
@@ -6173,6 +6124,8 @@ class ResamaniaApp(tk.Tk):
             self.incidencias_gestion_incidencias()
 
     def _incidencias_cambiar_estado(self, inc_id):
+        if not self._require_write("incidencias_club"):
+            return
         estado = self._incidencias_selector_estado()
         if not estado:
             return
@@ -6325,21 +6278,21 @@ class ResamaniaApp(tk.Tk):
         serie = ""
         if machine:
             serie = str(machine[3]).strip()
-
         menu = tk.Menu(self.incidencias_canvas, tearoff=0)
         menu.add_command(
-            label="Copiar NºSerie",
+            label="Copiar N Serie",
             command=lambda: (self.clipboard_clear(), self.clipboard_append(serie), self.update()),
         )
-        menu.add_command(label="Crear incidencia", command=lambda: self._incidencias_crear_incidencia_maquina(mid))
-        menu.add_command(
-            label="Editar maquina",
-            command=lambda: (self._incidencias_pin_ok() and self._incidencias_editar_maquina_directa(mid)),
-        )
-        menu.add_command(
-            label="Eliminar maquina",
-            command=lambda: (self._incidencias_pin_ok() and self._incidencias_eliminar_maquina_directa(mid)),
-        )
+        if self._can_write("incidencias_club"):
+            menu.add_command(label="Crear incidencia", command=lambda: self._incidencias_crear_incidencia_maquina(mid))
+            menu.add_command(
+                label="Editar maquina",
+                command=lambda: (self._incidencias_pin_ok() and self._incidencias_editar_maquina_directa(mid)),
+            )
+            menu.add_command(
+                label="Eliminar maquina",
+                command=lambda: (self._incidencias_pin_ok() and self._incidencias_eliminar_maquina_directa(mid)),
+            )
         menu.post(event.x_root, event.y_root)
 
     def incidencias_canvas_press(self, event):
@@ -6549,10 +6502,9 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_mode = None
 
     def exportar_excel(self):
+        if not self._require_manager_access("Exportar a Excel"):
+            return
         try:
-            if not self._security_pin_ok():
-                return
-
             pestana_activa = self.notebook.select()
             nombre_pestana = self.notebook.tab(pestana_activa, "text")
             tree = self.tabs[nombre_pestana].tree
@@ -6658,7 +6610,7 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
         """
         Abre Outlook con un borrador para felicitar cumpleanos (1 vez por año).
         """
-        if not self._security_pin_ok():
+        if not self._require_manager_access("Enviar felicitacion"):
             return
         self._bring_to_front()
         try:
@@ -6848,23 +6800,12 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
 
     def extraer_accesos(self):
         """
-        Pide PIN y numero de cliente, filtra ACCESOS.csv y muestra resultado en pestaña 'Accesos Cliente'.
+        Pide numero de cliente, filtra ACCESOS.csv y muestra resultado en pestaña 'Accesos Cliente'.
         """
+        if not self._require_manager_access("Extraer accesos"):
+            return
         if self.raw_accesos is None:
             messagebox.showwarning("Sin datos", "Primero carga datos (Actualizar datos) para tener ACCESOS.")
-            return
-
-        self._bring_to_front()
-        pin = simpledialog.askstring(
-            "Codigo de seguridad",
-            "Introduce el codigo de seguridad:",
-            show="*",
-            parent=self,
-        )
-        if pin is None:
-            return
-        if pin.strip() != get_security_code():
-            messagebox.showerror("Codigo incorrecto", "El codigo de seguridad no es valido.", parent=self)
             return
 
         self._bring_to_front()
@@ -6913,7 +6854,7 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
         """
         Abre borrador Outlook con el Excel adjunto de la pestaña Avanza Fit.
         """
-        if not self._security_pin_ok():
+        if not self._require_manager_access("Envio Avanza Fit"):
             return
         df = self.dataframes.get("Avanza Fit")
         if df is None or df.empty:
@@ -6973,4 +6914,3 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
 if __name__ == "__main__":
     app = ResamaniaApp()
     app.mainloop()
-
