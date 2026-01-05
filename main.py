@@ -157,6 +157,8 @@ class ResamaniaApp(tk.Tk):
         self.staff_write_areas = {"prestamos", "objetos_taquillas"}
         self._last_allowed_tab = None
         self._suppress_tab_guard = False
+        # Alias por compatibilidad: algunos botones usan el nombre antiguo.
+        self.nuevo_prestamo = self._prestamos_nuevo_prestamo
 
         # Impagos (SQLite)
         self.impagos_db = None
@@ -1429,7 +1431,7 @@ class ResamaniaApp(tk.Tk):
         tk.Button(top, text="Buscar", command=self.buscar_cliente_prestamo).pack(side="left", padx=5)
         tk.Button(top, text="Editar cliente manual", command=self.editar_cliente_manual).pack(side="left", padx=5)
         tk.Button(top, text="AGREGAR CLIENTE DE OTRO FITNESS PARK", command=self.agregar_cliente_otro_fp, bg="#ff7043", fg="white").pack(side="left", padx=5)
-        tk.Button(top, text="NUEVO PRESTAMO", command=self.nuevo_prestamo, bg="#ffcc80", fg="black").pack(side="left", padx=5)
+        tk.Button(top, text="NUEVO PRESTAMO", command=self._prestamos_nuevo_prestamo, bg="#ffcc80", fg="black").pack(side="left", padx=5)
         self.lbl_info = tk.Label(top, text="", anchor="w")
         self.lbl_info.pack(side="left", padx=10)
 
@@ -1476,6 +1478,17 @@ class ResamaniaApp(tk.Tk):
         except Exception:
             return None
 
+    def on_prestamo_doble_click(self, event):
+        if not self._require_write("prestamos"):
+            return
+        tree = getattr(self, "tree_prestamos", None)
+        if tree is None:
+            tree = event.widget
+            self.tree_prestamos = tree
+        if not tree.selection():
+            return
+        self.marcar_devuelto()
+
     def _socios_parse_dt(self, valor):
         try:
             return datetime.strptime(str(valor), "%d/%m/%Y %H:%M")
@@ -1516,6 +1529,118 @@ class ResamaniaApp(tk.Tk):
             messagebox.showwarning("Formato nombre", "Solo nombre primero (una palabra).")
             return self._pedir_campo(titulo, prompt, obligatorio, validar_nombre)
         return valor
+
+    def _prestamos_set_cliente(self, cliente):
+        self.prestamo_encontrado = cliente
+        info_text = f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}"
+        if hasattr(self, "lbl_info"):
+            self.lbl_info.config(text=info_text)
+        if hasattr(self, "prestamo_codigo") and cliente.get("codigo"):
+            self.prestamo_codigo.delete(0, tk.END)
+            self.prestamo_codigo.insert(0, str(cliente.get("codigo")))
+        if hasattr(self, "lbl_perdon"):
+            self.lbl_perdon.config(text="")
+
+    def _prestamos_registrar_cliente_manual(self, codigo=None):
+        self._bring_to_front()
+        if not codigo:
+            codigo = self._incidencias_prompt_text("Cliente manual", "Numero de cliente:")
+            if codigo is None or not str(codigo).strip():
+                return None
+            codigo = str(codigo).strip()
+
+        if self.resumen_df is not None:
+            colmap = {self._norm(c): c for c in self.resumen_df.columns}
+            col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
+            if col_codigo:
+                if any(str(val).strip() == codigo for val in self.resumen_df[col_codigo].fillna("")):
+                    messagebox.showwarning(
+                        "No permitido",
+                        "Este cliente ya existe en RESUMEN CLIENTE y no se puede agregar manualmente."
+                    )
+                    return None
+
+        nombre = self._incidencias_prompt_text("Cliente manual", "Nombre:")
+        if nombre is None or not nombre.strip():
+            messagebox.showwarning("Dato requerido", "El nombre es obligatorio.")
+            return None
+        apellidos = self._incidencias_prompt_text("Cliente manual", "Apellidos:")
+        if apellidos is None:
+            return None
+        email = self._incidencias_prompt_text("Cliente manual", "Email:")
+        if email is None:
+            return None
+        movil = self._incidencias_prompt_text("Cliente manual", "Movil (opcional):")
+        if movil is None:
+            return None
+        movil = self._normalizar_movil(movil)
+
+        cliente = {
+            "codigo": codigo,
+            "nombre": nombre.strip(),
+            "apellidos": apellidos.strip(),
+            "email": email.strip(),
+            "movil": movil.strip(),
+        }
+        self.clientes_ext = [c for c in self.clientes_ext if c.get("codigo") != codigo] + [cliente]
+        self.guardar_clientes_ext()
+        self._prestamos_set_cliente(cliente)
+        messagebox.showinfo("Cliente agregado", f"Cliente {codigo} agregado correctamente.")
+        return cliente
+
+    def agregar_cliente_otro_fp(self):
+        self._prestamos_registrar_cliente_manual()
+
+    def editar_cliente_manual(self):
+        codigo = self.prestamo_codigo.get().strip() if hasattr(self, "prestamo_codigo") else ""
+        if not codigo:
+            codigo = self._incidencias_prompt_text("Editar cliente", "Numero de cliente:")
+            if codigo is None or not str(codigo).strip():
+                return
+            codigo = str(codigo).strip()
+
+        if self.resumen_df is not None:
+            colmap = {self._norm(c): c for c in self.resumen_df.columns}
+            col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
+            if col_codigo:
+                if any(str(val).strip() == codigo for val in self.resumen_df[col_codigo].fillna("")):
+                    messagebox.showwarning(
+                        "No permitido",
+                        "Este cliente existe en RESUMEN CLIENTE y no se puede editar manualmente."
+                    )
+                    return
+
+        cliente_actual = next((c for c in self.clientes_ext if c.get("codigo") == codigo), None)
+        if not cliente_actual:
+            messagebox.showwarning("No encontrado", f"No hay cliente manual con codigo {codigo}.")
+            return
+
+        nombre = self._incidencias_prompt_text("Editar cliente", "Nombre:", cliente_actual.get("nombre", ""))
+        if nombre is None or not nombre.strip():
+            messagebox.showwarning("Dato requerido", "El nombre es obligatorio.")
+            return
+        apellidos = self._incidencias_prompt_text("Editar cliente", "Apellidos:", cliente_actual.get("apellidos", ""))
+        if apellidos is None:
+            return
+        email = self._incidencias_prompt_text("Editar cliente", "Email:", cliente_actual.get("email", ""))
+        if email is None:
+            return
+        movil = self._incidencias_prompt_text("Editar cliente", "Movil (opcional):", cliente_actual.get("movil", ""))
+        if movil is None:
+            return
+        movil = self._normalizar_movil(movil)
+
+        cliente = {
+            "codigo": codigo,
+            "nombre": nombre.strip(),
+            "apellidos": apellidos.strip(),
+            "email": email.strip(),
+            "movil": movil.strip(),
+        }
+        self.clientes_ext = [c for c in self.clientes_ext if c.get("codigo") != codigo] + [cliente]
+        self.guardar_clientes_ext()
+        self._prestamos_set_cliente(cliente)
+        messagebox.showinfo("Cliente actualizado", f"Cliente {codigo} actualizado correctamente.")
 
     def buscar_cliente_prestamo(self):
         codigo = self.prestamo_codigo.get().strip()
@@ -1590,30 +1715,46 @@ class ResamaniaApp(tk.Tk):
             materiales = ", ".join(p.get("material", "") for p in pendientes if p.get("material"))
             info_text += f" | Pendiente: {materiales or 'material sin devolver'}"
             messagebox.showwarning("Material pendiente", f"El cliente {codigo} tiene material sin devolver: {materiales}")
-            if len(pendientes) >= 2:
-                resp = messagebox.askyesno(
-                    "Limite de prestamos",
-                    f"El cliente {codigo} ya tiene {len(pendientes)} prestamos sin devolver.\n"
-                    "Desea liberar los pendientes para permitir otro prestamo?"
-                )
-                if not resp:
-                    return
-                for p in pendientes:
-                    p["devuelto"] = True
-                    p["liberado_pin"] = True
-                self.guardar_prestamos_json()
-                self.refrescar_prestamos_tree()
+        self.lbl_info.config(text=info_text)
 
+    def _prestamos_nuevo_prestamo(self):
+        if not self._require_write("prestamos"):
+            return
+        if not self.prestamo_encontrado:
+            messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
+            return
+        material = self._incidencias_prompt_text("Prestamo", "Material prestado:")
+        if material is None or not material.strip():
+            messagebox.showwarning("Dato requerido", "El material es obligatorio.")
+            return
+        staff = self._staff_select("Prestamo", "Quien presta el material?")
+        if not staff:
+            return
+        prestado_por = self._staff_display_name(staff)
+        codigo = str(self.prestamo_encontrado.get("codigo", "")).strip()
+        pendientes = [p for p in self.prestamos if p.get("codigo") == codigo and not p.get("devuelto")]
+        if len(pendientes) >= 2:
+            resp = messagebox.askyesno(
+                "Limite de prestamos",
+                f"El cliente {codigo} ya tiene {len(pendientes)} prestamos sin devolver.\n"
+                "Desea liberar los pendientes para permitir otro prestamo?"
+            )
+            if not resp:
+                return
+            for p in pendientes:
+                p["devuelto"] = True
+                p["liberado_pin"] = True
+            self.guardar_prestamos_json()
+            self.refrescar_prestamos_tree()
         prestamo = {
             "id": uuid.uuid4().hex,
             **self.prestamo_encontrado,
             "prestado_por": prestado_por or "",
-            "material": material,
+            "material": material.strip(),
             "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "devuelto": False,
-            "liberado_pin": False
+            "liberado_pin": False,
         }
-
         self.prestamos.append(prestamo)
         self.guardar_prestamos_json()
         self.refrescar_prestamos_tree()
@@ -1623,6 +1764,9 @@ class ResamaniaApp(tk.Tk):
         self.lbl_info.config(text="")
         self.lbl_perdon.config(text="")
         messagebox.showinfo("Guardado", "Prestamo registrado.")
+
+    def nuevo_prestamo(self):
+        self._prestamos_nuevo_prestamo()
 
     def marcar_devuelto(self):
         sel = self.tree_prestamos.selection()
