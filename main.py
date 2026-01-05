@@ -243,6 +243,15 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="INSTRUCCIONES", command=self.mostrar_instrucciones, bg="#ffeb3b", fg="black").pack(side=tk.LEFT, padx=10)
         self.btn_staff = tk.Button(botones_frame, text="STAFF", command=self.abrir_staff, bg="#9e9e9e", fg="black")
         self.btn_staff.pack(side=tk.LEFT, padx=10)
+        self.role_button = tk.Button(
+            botones_frame,
+            text=f"ROL: {self.user_role}",
+            command=self._toggle_role,
+            bg="#e0e0e0",
+            fg="black",
+        )
+        self.role_button.pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="RUTAS DATOS", command=self.mostrar_rutas_datos).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Actualizar datos", command=self.refresh_all_data).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
