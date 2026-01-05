@@ -15,7 +15,6 @@ import urllib.parse
 import webbrowser
 import shutil
 import random
-import traceback
 from logic.wizville import procesar_wizville
 from logic.accesos import procesar_accesos_dobles, procesar_accesos_descuadrados, procesar_salidas_pmr_no_autorizadas, \
     procesar_morosos_accediendo
@@ -76,20 +75,6 @@ def get_data_dir():
 def set_data_dir(path):
     data = _read_config()
     data["data_dir"] = os.path.normpath(path)
-    _write_config(data)
-
-
-def get_user_role():
-    data = _read_config()
-    role = str(data.get("user_role", "MANAGER")).upper()
-    if role not in ("MANAGER", "STAFF"):
-        role = "MANAGER"
-    return role
-
-
-def set_user_role(role):
-    data = _read_config()
-    data["user_role"] = role
     _write_config(data)
 
 
@@ -154,8 +139,6 @@ class ResamaniaApp(tk.Tk):
         # Parpadeo de botones
         self.blink_states = {}
         self.blink_interval_ms = 650
-        self.user_role = get_user_role()
-        self.staff_write_areas = {"prestamos", "objetos_taquillas"}
 
         # Impagos (SQLite)
         self.impagos_db = None
@@ -221,46 +204,6 @@ class ResamaniaApp(tk.Tk):
         self.after(500, self.update_blink_states)
         self._schedule_auto_refresh()
 
-    def report_callback_exception(self, exc, val, tb):
-        if isinstance(val, RuntimeError) and "Base de datos ocupada" in str(val):
-            messagebox.showwarning("Incidencias", str(val), parent=self)
-            return
-        traceback.print_exception(exc, val, tb)
-
-    def _role_label(self, area):
-        labels = {
-            "prestamos": "Prestamos",
-            "incidencias_club": "Incidencias Club",
-            "objetos_taquillas": "Objetos Taquillas",
-            "manager": "Gestion",
-        }
-        return labels.get(area, "esta seccion")
-
-    def _can_write(self, area):
-        if self.user_role == "MANAGER":
-            return True
-        return area in self.staff_write_areas
-
-    def _require_write(self, area):
-        if self._can_write(area):
-            return True
-        label = self._role_label(area)
-        role_label = f"ROL {self.user_role}"
-        messagebox.showwarning("Permisos", f"{role_label}: no puedes modificar {label}.", parent=self)
-        return False
-
-    def _update_role_button(self):
-        if hasattr(self, "role_button") and self.role_button:
-            self.role_button.config(text=f"ROL: {self.user_role}")
-
-    def _toggle_role(self):
-        if not self._security_pin_ok():
-            return
-        self.user_role = "STAFF" if self.user_role == "MANAGER" else "MANAGER"
-        set_user_role(self.user_role)
-        self._update_role_button()
-        messagebox.showinfo("Rol", f"Rol actual: {self.user_role}", parent=self)
-
     def create_widgets(self):
         top_frame = tk.Frame(self)
         top_frame.pack(pady=10, fill="x")
@@ -300,9 +243,6 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="INSTRUCCIONES", command=self.mostrar_instrucciones, bg="#ffeb3b", fg="black").pack(side=tk.LEFT, padx=10)
         self.btn_staff = tk.Button(botones_frame, text="STAFF", command=self.abrir_staff, bg="#9e9e9e", fg="black")
         self.btn_staff.pack(side=tk.LEFT, padx=10)
-        self.role_button = tk.Button(botones_frame, text=f"ROL: {self.user_role}", command=self._toggle_role, bg="#e0e0e0", fg="black")
-        self.role_button.pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="RUTAS DATOS", command=self.mostrar_rutas_datos).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Actualizar datos", command=self.refresh_all_data).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
@@ -610,9 +550,6 @@ class ResamaniaApp(tk.Tk):
                 self.pmr_autorizados = set()
 
     def guardar_pmr_autorizados(self):
-        if not self._require_write("manager"):
-            self.cargar_pmr_autorizados()
-            return
         os.makedirs(os.path.dirname(self.pmr_autorizados_file), exist_ok=True)
         with open(self.pmr_autorizados_file, "w", encoding="utf-8") as f:
             json.dump(sorted(self.pmr_autorizados), f, ensure_ascii=False, indent=2)
@@ -633,9 +570,6 @@ class ResamaniaApp(tk.Tk):
                 self.pmr_advertencias = {}
 
     def guardar_pmr_advertencias(self):
-        if not self._require_write("manager"):
-            self.cargar_pmr_advertencias()
-            return
         os.makedirs(os.path.dirname(self.pmr_advertencias_file), exist_ok=True)
         data = list(self.pmr_advertencias.values())
         with open(self.pmr_advertencias_file, "w", encoding="utf-8") as f:
@@ -959,9 +893,6 @@ class ResamaniaApp(tk.Tk):
             self.staff = []
 
     def guardar_staff(self):
-        if not self._require_write("manager"):
-            self.cargar_staff()
-            return
         os.makedirs(os.path.dirname(self.staff_file), exist_ok=True)
         with open(self.staff_file, "w", encoding="utf-8") as f:
             json.dump(self.staff, f, ensure_ascii=False, indent=2)
@@ -1055,8 +986,6 @@ class ResamaniaApp(tk.Tk):
             self.after(0, self.incidencias_info_maquinas)
 
     def ir_a_incidencias_socios(self):
-        if not self._security_pin_ok():
-            return
         tab = self.tabs.get("Incidencias Socios")
         if tab:
             self.incidencias_socios_filtro = "VISTO_PENDIENTE"
@@ -1079,8 +1008,6 @@ class ResamaniaApp(tk.Tk):
             self.notebook.select(tab)
 
     def select_folder(self):
-        if not self._security_pin_ok():
-            return
         folder = filedialog.askdirectory()
         if folder:
             self.folder_path = folder
@@ -1937,9 +1864,6 @@ class ResamaniaApp(tk.Tk):
             self.refrescar_incidencias_socios_tree()
 
     def guardar_incidencias_socios(self):
-        if not self._require_write("manager"):
-            self.cargar_incidencias_socios()
-            return
         os.makedirs(os.path.dirname(self.incidencias_socios_file), exist_ok=True)
         with open(self.incidencias_socios_file, "w", encoding="utf-8") as f:
             json.dump(self.incidencias_socios, f, ensure_ascii=False, indent=2)
@@ -2494,9 +2418,6 @@ class ResamaniaApp(tk.Tk):
         self._update_taquillas_blink()
 
     def guardar_objetos_taquillas(self):
-        if not self._require_write("objetos_taquillas"):
-            self.cargar_objetos_taquillas()
-            return
         try:
             os.makedirs(os.path.dirname(self.objetos_taquillas_file), exist_ok=True)
             with open(self.objetos_taquillas_file, "w", encoding="utf-8") as f:
@@ -3121,9 +3042,6 @@ class ResamaniaApp(tk.Tk):
             self.refrescar_bajas_tree()
 
     def guardar_bajas(self):
-        if not self._require_write("manager"):
-            self.cargar_bajas()
-            return
         try:
             os.makedirs(os.path.dirname(self.bajas_file), exist_ok=True)
             with open(self.bajas_file, "w", encoding="utf-8") as f:
@@ -3558,9 +3476,6 @@ class ResamaniaApp(tk.Tk):
             self.felicitaciones_enviadas = {}
 
     def guardar_prestamos_json(self):
-        if not self._require_write("prestamos"):
-            self.cargar_prestamos_json()
-            return
         try:
             os.makedirs(os.path.dirname(self.prestamos_file), exist_ok=True)
             with open(self.prestamos_file, "w", encoding="utf-8") as f:
@@ -3569,9 +3484,6 @@ class ResamaniaApp(tk.Tk):
             pass  # silencioso para no romper UI
 
     def guardar_clientes_ext(self):
-        if not self._require_write("prestamos"):
-            self.cargar_clientes_ext()
-            return
         try:
             os.makedirs(os.path.dirname(self.clientes_ext_file), exist_ok=True)
             with open(self.clientes_ext_file, "w", encoding="utf-8") as f:
@@ -3580,9 +3492,6 @@ class ResamaniaApp(tk.Tk):
             pass
 
     def guardar_felicitaciones(self):
-        if not self._require_write("manager"):
-            self.cargar_felicitaciones()
-            return
         try:
             os.makedirs(os.path.dirname(self.felicitaciones_file), exist_ok=True)
             with open(self.felicitaciones_file, "w", encoding="utf-8") as f:
@@ -3599,9 +3508,6 @@ class ResamaniaApp(tk.Tk):
             self.avanza_fit_envios = {}
 
     def guardar_avanza_fit_envios(self):
-        if not self._require_write("manager"):
-            self.cargar_avanza_fit_envios()
-            return
         try:
             os.makedirs(os.path.dirname(self.avanza_fit_envios_file), exist_ok=True)
             with open(self.avanza_fit_envios_file, "w", encoding="utf-8") as f:
@@ -3879,15 +3785,6 @@ class ResamaniaApp(tk.Tk):
             messagebox.showwarning("Sin carpeta", "Selecciona primero la carpeta de datos.")
 
     def sync_impagos(self, df, show_messages=True):
-        if not self._can_write("manager"):
-            if show_messages:
-                messagebox.showwarning(
-                    "Permisos",
-                    "ROL STAFF: no puedes actualizar impagos.",
-                    parent=self,
-                )
-            self.refresh_impagos_view()
-            return
         if not self.impagos_db:
             if show_messages:
                 messagebox.showwarning("Impagos", "Base de datos no inicializada.")
@@ -4017,8 +3914,6 @@ class ResamaniaApp(tk.Tk):
         messagebox.showinfo("Copiado", "Email copiado al portapapeles.")
 
     def _impagos_registrar(self, accion, plantilla=""):
-        if not self._require_write("manager"):
-            return
         data = self._get_impagos_selected()
         if not data:
             return
@@ -4031,8 +3926,6 @@ class ResamaniaApp(tk.Tk):
         self.refresh_impagos_view()
 
     def enviar_email_impagos(self, plantilla):
-        if not self._require_write("manager"):
-            return
         # Recolecta emails desde la vista actual según incidentes
         rows = [self.tree_impagos.item(i)["values"] for i in self.tree_impagos.get_children()]
         if plantilla == "1inc":
@@ -4101,8 +3994,6 @@ class ResamaniaApp(tk.Tk):
         self.refresh_impagos_view()
 
     def enviar_email_resueltos(self):
-        if not self._require_write("manager"):
-            return
         if self.impagos_view.get() != "resueltos":
             messagebox.showwarning("Impagos", "Selecciona la vista Resueltos para enviar este email.")
             return
@@ -4544,9 +4435,6 @@ class ResamaniaApp(tk.Tk):
         self._suspensiones_notificar_fin()
 
     def guardar_suspensiones(self):
-        if not self._require_write("manager"):
-            self.cargar_suspensiones()
-            return
         try:
             os.makedirs(os.path.dirname(self.suspensiones_file), exist_ok=True)
             with open(self.suspensiones_file, "w", encoding="utf-8") as f:
@@ -5167,8 +5055,6 @@ class ResamaniaApp(tk.Tk):
         return True
 
     def _incidencias_pin_ok(self):
-        if not self._require_write("incidencias_club"):
-            return False
         self._bring_to_front()
         pin = simpledialog.askstring("Código de seguridad", "Introduce el código de seguridad:", show="*")
         if pin is None:
@@ -5879,8 +5765,6 @@ class ResamaniaApp(tk.Tk):
             self._staff_populate_tree(self.staff_tree, self.staff_filter_var.get())
 
     def incidencias_crear_incidencia(self):
-        if not self._require_write("incidencias_club"):
-            return
         self._bring_to_front()
         creador = self._staff_select("Incidencia", "Quien crea la incidencia?")
         if not creador:
@@ -6228,8 +6112,6 @@ class ResamaniaApp(tk.Tk):
                 return aid
         return None
     def _incidencias_editar_incidencia(self, inc_id):
-        if not self._require_write("incidencias_club"):
-            return
         self._bring_to_front()
         elemento = self._incidencias_prompt_text("Incidencia", "Material/elemento:")
         descripcion = self._incidencias_prompt_text("Incidencia", "Describe la incidencia:")
@@ -6252,8 +6134,6 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_gestion_incidencias()
 
     def _incidencias_cambiar_reporte(self, inc_id):
-        if not self._require_write("incidencias_club"):
-            return
         self._bring_to_front()
         reporte_actual = None
         if hasattr(self, "incidencias_inc_map"):
@@ -6270,8 +6150,6 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_gestion_incidencias()
 
     def _incidencias_eliminar_incidencia(self, inc_id):
-        if not self._require_write("incidencias_club"):
-            return
         self._bring_to_front()
         if messagebox.askyesno("Eliminar", "Eliminar incidencia?", parent=self):
             reporte = None
@@ -6286,8 +6164,6 @@ class ResamaniaApp(tk.Tk):
             self.incidencias_gestion_incidencias()
 
     def _incidencias_cambiar_estado(self, inc_id):
-        if not self._require_write("incidencias_club"):
-            return
         estado = self._incidencias_selector_estado()
         if not estado:
             return
@@ -6358,8 +6234,6 @@ class ResamaniaApp(tk.Tk):
         return None
 
     def _incidencias_crear_incidencia_maquina(self, mid):
-        if not self._require_write("incidencias_club"):
-            return
         machine = self._incidencias_get_machine_by_id(mid)
         if not machine:
             return
@@ -6630,12 +6504,6 @@ class ResamaniaApp(tk.Tk):
             self.incidencias_pan_active = False
             return
         if not self.incidencias_mode:
-            return
-        if not self._require_write("incidencias_club"):
-            self.incidencias_mode = None
-            if self.incidencias_draw_rect:
-                self.incidencias_canvas.delete(self.incidencias_draw_rect)
-                self.incidencias_draw_rect = None
             return
         if not self.incidencias_draw_rect:
             return
