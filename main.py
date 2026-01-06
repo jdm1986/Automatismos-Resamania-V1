@@ -112,6 +112,17 @@ class ResamaniaApp(tk.Tk):
         self.title("AUTOMATISMOS RESAMANIA - JDM Developer")
         self.state('zoomed')  # Pantalla completa al arrancar
         self.folder_path = get_default_folder()
+        self._invalid_default_folder = False
+        if self.folder_path and not os.path.exists(self.folder_path):
+            self.folder_path = ""
+            set_default_folder("")
+            self._invalid_default_folder = True
+        if not self.folder_path or self._invalid_default_folder:
+            app_dir = get_app_dir()
+            if self._folder_has_data(app_dir):
+                self.folder_path = app_dir
+                set_default_folder(app_dir)
+                self._invalid_default_folder = False
         self.dataframes = {}
         self.raw_accesos = None
         self.resumen_df = None
@@ -215,14 +226,18 @@ class ResamaniaApp(tk.Tk):
         self.db_lock_path = None
 
         self.create_widgets()
-        if self.folder_path:
+        if self._invalid_default_folder:
+            messagebox.showwarning(
+                "Carpeta no encontrada",
+                "La carpeta guardada no existe en este equipo. Selecciona la carpeta de OneDrive."
+            )
+        if self.folder_path and os.path.exists(self.folder_path):
             self.data_dir = os.path.join(self.folder_path, "data")
             set_data_dir(self.data_dir)
             self._set_data_dir(self.data_dir, show_message=False)
             self.refresh_persistent_data(show_messages=False)
             self.load_data()
         self.after(500, self.update_blink_states)
-        self._schedule_auto_refresh()
 
     def _role_label(self, area):
         labels = {
@@ -232,6 +247,19 @@ class ResamaniaApp(tk.Tk):
             "manager": "Gestion",
         }
         return labels.get(area, "esta seccion")
+
+    def _folder_has_data(self, path):
+        if not path or not os.path.isdir(path):
+            return False
+        csvs = [
+            "RESUMEN CLIENTE.csv",
+            "ACCESOS.csv",
+            "FACTURAS Y VALES.csv",
+            "IMPAGOS.csv",
+        ]
+        if any(os.path.exists(os.path.join(path, name)) for name in csvs):
+            return True
+        return os.path.isdir(os.path.join(path, "data"))
 
     def _can_write(self, area):
         if self.user_role == "MANAGER":
