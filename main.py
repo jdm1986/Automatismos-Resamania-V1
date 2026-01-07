@@ -555,13 +555,24 @@ class ResamaniaApp(tk.Tk):
 
     def copiar_celda(self, event, tree):
         seleccion = tree.selection()
-        if seleccion:
-            item = seleccion[0]
-            col = tree.identify_column(event.x)
-            col_index = int(col.replace('#', '')) - 1
-            valor = tree.item(item)['values'][col_index]
-            self.clipboard_clear()
-            self.clipboard_append(str(valor))
+        if not seleccion:
+            row = tree.identify_row(event.y)
+            if row:
+                tree.selection_set(row)
+                seleccion = (row,)
+        if not seleccion:
+            return
+        item = seleccion[0]
+        col = tree.identify_column(event.x)
+        col_index = int(col.replace('#', '')) - 1
+        if col_index < 0:
+            return
+        valores = tree.item(item).get('values', [])
+        if col_index >= len(valores):
+            return
+        valor = valores[col_index]
+        self.clipboard_clear()
+        self.clipboard_append(str(valor))
 
     def mostrar_menu(self, event, menu, tree):
         tree.event_context = event
