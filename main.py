@@ -586,8 +586,6 @@ class ResamaniaApp(tk.Tk):
         self.prestamos_menu.add_command(label="Enviar aviso Whatsapp", command=self.abrir_whatsapp_prestamo)
         self.prestamos_menu.add_command(label="Vista individual/colectiva", command=self.toggle_prestamos_vista)
         self.prestamos_menu.add_command(label="Eliminar registro", command=self.eliminar_prestamo)
-        if getattr(self, "prestamos_menu_btn", None) is not None:
-            self.prestamos_menu_btn.configure(menu=self.prestamos_menu)
 
     def mostrar_menu(self, event, menu, tree):
         tree.event_context = event
@@ -1480,10 +1478,8 @@ class ResamaniaApp(tk.Tk):
         self.prestamo_codigo.pack(side="left", padx=5)
         tk.Button(top, text="Buscar", command=self.buscar_cliente_prestamo).pack(side="left", padx=5)
         tk.Button(top, text="Editar cliente externo", command=self.editar_cliente_manual).pack(side="left", padx=5)
-        tk.Button(top, text="AGREGAR CLIENTE DE OTRO FITNESS PARK", command=self.agregar_cliente_otro_fp, bg="#ff7043", fg="white").pack(side="left", padx=5)
+        tk.Button(top, text="AGREGAR CLIENTE EXTERNO", command=self.agregar_cliente_otro_fp, bg="#ff7043", fg="white").pack(side="left", padx=5)
         tk.Button(top, text="NUEVO PRESTAMO", command=self._prestamos_nuevo_prestamo, bg="#ffcc80", fg="black").pack(side="left", padx=5)
-        self.prestamos_menu_btn = tk.Menubutton(top, text="MENU", bg="#e0e0e0", fg="black", relief="raised")
-        self.prestamos_menu_btn.pack(side="left", padx=5)
         self.lbl_info = tk.Label(top, text="", anchor="w")
         self.lbl_info.pack(side="left", padx=10)
 
@@ -5050,13 +5046,13 @@ class ResamaniaApp(tk.Tk):
             parent=self,
         ):
             return
-        subject = "Fin de suspension"
+        subject = "Fin de suspensión"
         body = "\n".join(
             [
-                "Tu periodo de suspension ha finalizado.",
+                "Tu periodo de suspensión ha finalizado.",
                 "",
                 "Gracias por confiar en Fitness Park Villalobos.",
-                "Estamos deseando volver a verte en nuestras instalaciones desafiandote y superandote cada dia.",
+                "Estamos deseando volver a verte en nuestras instalaciones desafiándote y superándote cada día.",
                 "Nos vemos por el club.",
             ]
         )
