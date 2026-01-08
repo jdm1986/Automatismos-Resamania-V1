@@ -170,6 +170,7 @@ class ResamaniaApp(tk.Tk):
         self._suppress_tab_guard = False
         # Alias por compatibilidad: algunos botones usan el nombre antiguo.
         self.nuevo_prestamo = self._prestamos_nuevo_prestamo
+        self.prestamos_last_event = None
 
         # Impagos (SQLite)
         self.impagos_db = None
@@ -389,6 +390,7 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=self.ir_a_incidencias_club, bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="GESTION CLIENTES", command=self.mostrar_gestion_clientes, bg="#c5e1a5", fg="black").pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="PRESTAMOS", command=self.ir_a_prestamos, bg="#ffcc80", fg="black").pack(side=tk.LEFT, padx=10)
         self.staff_menu = tk.Menu(self, tearoff=0)
         self.staff_menu.add_command(label="GESTIONAR STAFF", command=self.abrir_gestion_staff)
         self.staff_menu.add_command(label="DIA DE ASUNTOS PROPIOS", command=self.enviar_asuntos_propios)
@@ -574,6 +576,19 @@ class ResamaniaApp(tk.Tk):
         self.clipboard_clear()
         self.clipboard_append(str(valor))
 
+    def _prestamos_build_menu(self):
+        self.prestamos_menu = tk.Menu(self, tearoff=0)
+        self.prestamos_menu.add_command(label="Copiar", command=self._prestamos_copy_selected)
+        self.prestamos_menu.add_separator()
+        self.prestamos_menu.add_command(label="Editar cliente externo", command=self.editar_cliente_manual)
+        self.prestamos_menu.add_command(label="Check devuelto", command=self.marcar_devuelto)
+        self.prestamos_menu.add_command(label="Enviar aviso email", command=self.enviar_aviso_prestamo)
+        self.prestamos_menu.add_command(label="Enviar aviso Whatsapp", command=self.abrir_whatsapp_prestamo)
+        self.prestamos_menu.add_command(label="Vista individual/colectiva", command=self.toggle_prestamos_vista)
+        self.prestamos_menu.add_command(label="Eliminar registro", command=self.eliminar_prestamo)
+        if getattr(self, "prestamos_menu_btn", None) is not None:
+            self.prestamos_menu_btn.configure(menu=self.prestamos_menu)
+
     def mostrar_menu(self, event, menu, tree):
         tree.event_context = event
         menu.delete(0, "end")
@@ -581,16 +596,6 @@ class ResamaniaApp(tk.Tk):
         accesos_tab = self.tabs.get("Accesos")
         if accesos_tab and tree is accesos_tab.tree and self.accesos_grupo_actual == "Salidas PMR Autorizados":
             menu.add_command(label="Quitar autorizacion", command=self.pmr_quitar_autorizado)
-        if hasattr(self, "tree_prestamos") and tree is self.tree_prestamos:
-            row = tree.identify_row(event.y)
-            if row:
-                tree.selection_set(row)
-            menu.add_separator()
-            menu.add_command(label="Check devuelto", command=self.marcar_devuelto)
-            menu.add_command(label="Enviar aviso email", command=self.enviar_aviso_prestamo)
-            menu.add_command(label="Enviar aviso Whatsapp", command=self.abrir_whatsapp_prestamo)
-            menu.add_command(label="Vista individual/colectiva", command=self.toggle_prestamos_vista)
-            menu.add_command(label="Eliminar prestamo", command=self.eliminar_prestamo)
         menu.post(event.x_root, event.y_root)
 
     def create_accesos_tab(self, tab):
@@ -1145,6 +1150,12 @@ class ResamaniaApp(tk.Tk):
                 self.incidencias_cargar_listado_mapas()
             self.after(0, self.incidencias_info_maquinas)
 
+    def ir_a_prestamos(self):
+        self.ocultar_gestion_clientes()
+        tab = self.tabs.get("Prestamos")
+        if tab:
+            self.notebook.select(tab)
+
     def ir_a_incidencias_socios(self):
         if not self._require_manager_access("Incidencias socios"):
             return
@@ -1468,9 +1479,11 @@ class ResamaniaApp(tk.Tk):
         self.prestamo_codigo = tk.Entry(top, width=14)
         self.prestamo_codigo.pack(side="left", padx=5)
         tk.Button(top, text="Buscar", command=self.buscar_cliente_prestamo).pack(side="left", padx=5)
-        tk.Button(top, text="Editar cliente manual", command=self.editar_cliente_manual).pack(side="left", padx=5)
+        tk.Button(top, text="Editar cliente externo", command=self.editar_cliente_manual).pack(side="left", padx=5)
         tk.Button(top, text="AGREGAR CLIENTE DE OTRO FITNESS PARK", command=self.agregar_cliente_otro_fp, bg="#ff7043", fg="white").pack(side="left", padx=5)
         tk.Button(top, text="NUEVO PRESTAMO", command=self._prestamos_nuevo_prestamo, bg="#ffcc80", fg="black").pack(side="left", padx=5)
+        self.prestamos_menu_btn = tk.Menubutton(top, text="MENU", bg="#e0e0e0", fg="black", relief="raised")
+        self.prestamos_menu_btn.pack(side="left", padx=5)
         self.lbl_info = tk.Label(top, text="", anchor="w")
         self.lbl_info.pack(side="left", padx=10)
 
@@ -1501,11 +1514,14 @@ class ResamaniaApp(tk.Tk):
         tree.tag_configure("verde", background="#d4edda")
         tree.bind("<Control-c>", lambda e: self.copiar_celda(e, tree))
         tree.bind("<Double-1>", self.on_prestamo_doble_click)
-        menu = tk.Menu(tree, tearoff=0)
-        menu.add_command(label="Copiar", command=lambda: self.copiar_celda(tree.event_context, tree))
-        tree.bind("<Button-3>", lambda e: self.mostrar_menu(e, menu, tree))
+        tree.bind("<Button-1>", self._prestamos_store_event)
+        tree.bind("<Button-3>", self._prestamos_context_menu)
+        tree.bind("<ButtonRelease-3>", self._prestamos_context_menu)
+        tree.bind("<Button-2>", self._prestamos_context_menu)
+        tree.bind("<Shift-Button-1>", self._prestamos_context_menu)
         self.tree_prestamos = tree
         tab.tree = tree
+        self._prestamos_build_menu()
 
     def _norm(self, text):
         t = unicodedata.normalize("NFD", str(text or "")).upper().strip()
@@ -1518,8 +1534,6 @@ class ResamaniaApp(tk.Tk):
             return None
 
     def on_prestamo_doble_click(self, event):
-        if not self._require_write("prestamos"):
-            return
         tree = getattr(self, "tree_prestamos", None)
         if tree is None:
             tree = event.widget
@@ -1527,6 +1541,37 @@ class ResamaniaApp(tk.Tk):
         if not tree.selection():
             return
         self.marcar_devuelto()
+
+    def _prestamos_store_event(self, event):
+        self.prestamos_last_event = event
+
+    def _prestamos_copy_selected(self):
+        tree = getattr(self, "tree_prestamos", None)
+        if tree is None:
+            return
+        event = self.prestamos_last_event
+        if event is None:
+            class DummyEvent:
+                x = 5
+                y = 5
+            event = DummyEvent()
+        self.copiar_celda(event, tree)
+
+    def _prestamos_context_menu(self, event):
+        tree = event.widget
+        if tree is None:
+            return
+        self.prestamos_last_event = event
+        row = tree.identify_row(event.y)
+        if row:
+            tree.selection_set(row)
+        if getattr(self, "prestamos_menu", None) is None:
+            self._prestamos_build_menu()
+        try:
+            self.prestamos_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.prestamos_menu.grab_release()
+        return "break"
 
     def _socios_parse_dt(self, valor):
         try:
@@ -1757,8 +1802,6 @@ class ResamaniaApp(tk.Tk):
         self.lbl_info.config(text=info_text)
 
     def _prestamos_nuevo_prestamo(self):
-        if not self._require_write("prestamos"):
-            return
         if not self.prestamo_encontrado:
             messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
             return
@@ -3782,6 +3825,10 @@ class ResamaniaApp(tk.Tk):
                 p.get("email", ""), p.get("movil", ""), p.get("material", ""),
                 p.get("fecha", ""), "SI" if p.get("devuelto") else "NO", p.get("prestado_por", "")
             ], tags=(tag,), iid=iid)
+
+    def toggle_prestamos_vista(self):
+        self.prestamos_filtro_activo = not self.prestamos_filtro_activo
+        self.refrescar_prestamos_tree()
 
     # -----------------------------
     # PESTAÑA IMPAGOS
