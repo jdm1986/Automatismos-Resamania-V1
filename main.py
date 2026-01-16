@@ -78,6 +78,30 @@ def set_data_dir(path):
     _write_config(data)
 
 
+def get_db_config():
+    data = _read_config()
+    db = data.get("db", {})
+    return {
+        "host": str(db.get("host", "")).strip(),
+        "port": str(db.get("port", "5432")).strip(),
+        "name": str(db.get("name", "resamania")).strip(),
+        "user": str(db.get("user", "resamania")).strip(),
+        "password": str(db.get("password", "")),
+    }
+
+
+def set_db_config(host, port, name, user, password):
+    data = _read_config()
+    data["db"] = {
+        "host": str(host).strip(),
+        "port": str(port).strip(),
+        "name": str(name).strip(),
+        "user": str(user).strip(),
+        "password": str(password),
+    }
+    _write_config(data)
+
+
 def get_user_role():
     data = _read_config()
     role = str(data.get("user_role", "MANAGER")).upper()
@@ -386,6 +410,9 @@ class ResamaniaApp(tk.Tk):
         self.role_button.pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="RUTAS DATOS", command=self.mostrar_rutas_datos).pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="CONFIG BD", command=self.abrir_config_db, bg="#bbdefb", fg="black").pack(
+            side=tk.LEFT, padx=10
+        )
         tk.Button(botones_frame, text="Actualizar datos", command=self.refresh_all_data).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=self.ir_a_incidencias_club, bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
@@ -1211,9 +1238,10 @@ class ResamaniaApp(tk.Tk):
         self.suspensiones_file = os.path.join(self.data_dir, "suspensiones.json")
         self.felicitaciones_file = os.path.join(self.data_dir, "felicitaciones.json")
         self.avanza_fit_envios_file = os.path.join(self.data_dir, "avanza_fit_envios.json")
-        self.impagos_db = ImpagosDB(os.path.join(self.data_dir, "impagos.db"))
+        db_config = get_db_config()
+        self.impagos_db = ImpagosDB(os.path.join(self.data_dir, "impagos.db"), db_config=db_config)
         self.staff_file = os.path.join(self.data_dir, "staff.json")
-        self.incidencias_db = IncidenciasDB(os.path.join(self.data_dir, "incidencias.db"))
+        self.incidencias_db = IncidenciasDB(os.path.join(self.data_dir, "incidencias.db"), db_config=db_config)
         self.pmr_autorizados_file = os.path.join(self.data_dir, "pmr_autorizados.json")
         self.pmr_advertencias_file = os.path.join(self.data_dir, "pmr_advertencias.json")
         if hasattr(self, "incidencias_canvas") and self.incidencias_canvas:
@@ -1248,6 +1276,11 @@ class ResamaniaApp(tk.Tk):
         data_dir = self.data_dir or "(no definida)"
         impagos_db_path = getattr(self.impagos_db, "db_path", "") if hasattr(self, "impagos_db") else ""
         incidencias_db_path = getattr(self.incidencias_db, "db_path", "") if hasattr(self, "incidencias_db") else ""
+        db_cfg = get_db_config()
+        db_host = db_cfg.get("host") or "(no configurado)"
+        db_port = db_cfg.get("port") or ""
+        db_name = db_cfg.get("name") or ""
+        db_user = db_cfg.get("user") or ""
         maps_dir = os.path.join(self.data_dir, "maps") if self.data_dir else ""
         maps_count = None
         map_rows = []
@@ -1264,6 +1297,10 @@ class ResamaniaApp(tk.Tk):
             f"CWD: {os.getcwd()}",
             f"IMPAGOS DB: {impagos_db_path}",
             f"INCIDENCIAS DB: {incidencias_db_path}",
+            f"DB host: {db_host}",
+            f"DB port: {db_port}",
+            f"DB name: {db_name}",
+            f"DB user: {db_user}",
             f"MAPS dir: {maps_dir}",
             f"CONFIG existe: {'SI' if os.path.exists(config_path) else 'NO'}",
             f"CSV existe: {'SI' if os.path.exists(carpeta_csv) else 'NO'}",
@@ -1288,6 +1325,80 @@ class ResamaniaApp(tk.Tk):
                 lines.append(f"MAPA 1 resuelta: {resolved}")
                 lines.append(f"MAPA 1 existe: {'SI' if resolved and os.path.exists(resolved) else 'NO'}")
         messagebox.showinfo("Rutas de datos", "\n".join(lines), parent=self)
+
+    def abrir_config_db(self):
+        if not self._require_manager_access("Configurar BD"):
+            return
+        current = get_db_config()
+        win = tk.Toplevel(self)
+        win.title("Configurar BD")
+        win.transient(self)
+        win.resizable(False, False)
+
+        form = tk.Frame(win)
+        form.pack(padx=12, pady=10)
+
+        tk.Label(form, text="Host/Servidor:").grid(row=0, column=0, sticky="e", padx=6, pady=4)
+        tk.Label(form, text="Puerto:").grid(row=1, column=0, sticky="e", padx=6, pady=4)
+        tk.Label(form, text="Base de datos:").grid(row=2, column=0, sticky="e", padx=6, pady=4)
+        tk.Label(form, text="Usuario:").grid(row=3, column=0, sticky="e", padx=6, pady=4)
+        tk.Label(form, text="Contrasena:").grid(row=4, column=0, sticky="e", padx=6, pady=4)
+
+        host_var = tk.StringVar(value=current.get("host", ""))
+        port_var = tk.StringVar(value=current.get("port", "5432"))
+        name_var = tk.StringVar(value=current.get("name", "resamania"))
+        user_var = tk.StringVar(value=current.get("user", "resamania"))
+        pass_var = tk.StringVar(value=current.get("password", ""))
+
+        host_entry = tk.Entry(form, textvariable=host_var, width=30)
+        port_entry = tk.Entry(form, textvariable=port_var, width=10)
+        name_entry = tk.Entry(form, textvariable=name_var, width=30)
+        user_entry = tk.Entry(form, textvariable=user_var, width=30)
+        pass_entry = tk.Entry(form, textvariable=pass_var, width=30, show="*")
+
+        host_entry.grid(row=0, column=1, padx=6, pady=4)
+        port_entry.grid(row=1, column=1, sticky="w", padx=6, pady=4)
+        name_entry.grid(row=2, column=1, padx=6, pady=4)
+        user_entry.grid(row=3, column=1, padx=6, pady=4)
+        pass_entry.grid(row=4, column=1, padx=6, pady=4)
+
+        nota = "Host puede ser el nombre del PC (ej: FPVillalobos)."
+        tk.Label(win, text=nota).pack(padx=12, pady=(0, 6))
+
+        def guardar():
+            host = host_var.get().strip()
+            port = port_var.get().strip() or "5432"
+            name = name_var.get().strip()
+            user = user_var.get().strip()
+            password = pass_var.get()
+            if not host:
+                messagebox.showwarning("Config BD", "Introduce el host o servidor.", parent=win)
+                return
+            if not port.isdigit() or not (1 <= int(port) <= 65535):
+                messagebox.showwarning("Config BD", "El puerto no es valido.", parent=win)
+                return
+            if not name:
+                messagebox.showwarning("Config BD", "Introduce el nombre de la base de datos.", parent=win)
+                return
+            if not user:
+                messagebox.showwarning("Config BD", "Introduce el usuario.", parent=win)
+                return
+            set_db_config(host, port, name, user, password)
+            if self.data_dir:
+                self.impagos_db = ImpagosDB(os.path.join(self.data_dir, "impagos.db"), db_config=get_db_config())
+                self.incidencias_db = IncidenciasDB(os.path.join(self.data_dir, "incidencias.db"), db_config=get_db_config())
+            messagebox.showinfo("Config BD", "Configuracion guardada.", parent=win)
+            win.destroy()
+
+        btns = tk.Frame(win)
+        btns.pack(pady=(0, 10))
+        tk.Button(btns, text="Guardar", width=10, command=guardar).pack(side="left", padx=5)
+        tk.Button(btns, text="Cancelar", width=10, command=win.destroy).pack(side="left", padx=5)
+        win.bind("<Return>", lambda _e: guardar())
+        win.bind("<Escape>", lambda _e: win.destroy())
+        self._incidencias_center_window(win)
+        win.grab_set()
+        win.wait_window()
 
     def load_data(self, show_messages=True):
         if not self.folder_path:
