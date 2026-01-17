@@ -3246,6 +3246,322 @@
   ('pkgutil', 'C:\\Python313\\Lib\\pkgutil.py', 'PYMODULE'),
   ('platform', 'C:\\Python313\\Lib\\platform.py', 'PYMODULE'),
   ('pprint', 'C:\\Python313\\Lib\\pprint.py', 'PYMODULE'),
+  ('psycopg',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\__init__.py',
+   'PYMODULE'),
+  ('psycopg._acompat',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_acompat.py',
+   'PYMODULE'),
+  ('psycopg._adapters_map',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_adapters_map.py',
+   'PYMODULE'),
+  ('psycopg._capabilities',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_capabilities.py',
+   'PYMODULE'),
+  ('psycopg._cmodule',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_cmodule.py',
+   'PYMODULE'),
+  ('psycopg._column',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_column.py',
+   'PYMODULE'),
+  ('psycopg._compat',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_compat.py',
+   'PYMODULE'),
+  ('psycopg._connection_base',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_connection_base.py',
+   'PYMODULE'),
+  ('psycopg._connection_info',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_connection_info.py',
+   'PYMODULE'),
+  ('psycopg._conninfo_attempts',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_conninfo_attempts.py',
+   'PYMODULE'),
+  ('psycopg._conninfo_attempts_async',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_conninfo_attempts_async.py',
+   'PYMODULE'),
+  ('psycopg._conninfo_utils',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_conninfo_utils.py',
+   'PYMODULE'),
+  ('psycopg._copy',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_copy.py',
+   'PYMODULE'),
+  ('psycopg._copy_async',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_copy_async.py',
+   'PYMODULE'),
+  ('psycopg._copy_base',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_copy_base.py',
+   'PYMODULE'),
+  ('psycopg._cursor_base',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_cursor_base.py',
+   'PYMODULE'),
+  ('psycopg._encodings',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_encodings.py',
+   'PYMODULE'),
+  ('psycopg._enums',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_enums.py',
+   'PYMODULE'),
+  ('psycopg._oids',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_oids.py',
+   'PYMODULE'),
+  ('psycopg._pipeline',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_pipeline.py',
+   'PYMODULE'),
+  ('psycopg._pipeline_async',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_pipeline_async.py',
+   'PYMODULE'),
+  ('psycopg._pipeline_base',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_pipeline_base.py',
+   'PYMODULE'),
+  ('psycopg._preparing',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_preparing.py',
+   'PYMODULE'),
+  ('psycopg._py_transformer',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_py_transformer.py',
+   'PYMODULE'),
+  ('psycopg._queries',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_queries.py',
+   'PYMODULE'),
+  ('psycopg._server_cursor',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_server_cursor.py',
+   'PYMODULE'),
+  ('psycopg._server_cursor_async',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_server_cursor_async.py',
+   'PYMODULE'),
+  ('psycopg._server_cursor_base',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_server_cursor_base.py',
+   'PYMODULE'),
+  ('psycopg._struct',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_struct.py',
+   'PYMODULE'),
+  ('psycopg._tpc',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_tpc.py',
+   'PYMODULE'),
+  ('psycopg._transformer',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_transformer.py',
+   'PYMODULE'),
+  ('psycopg._tstrings',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_tstrings.py',
+   'PYMODULE'),
+  ('psycopg._typeinfo',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_typeinfo.py',
+   'PYMODULE'),
+  ('psycopg._typemod',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_typemod.py',
+   'PYMODULE'),
+  ('psycopg._tz',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_tz.py',
+   'PYMODULE'),
+  ('psycopg._wrappers',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\_wrappers.py',
+   'PYMODULE'),
+  ('psycopg.abc',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\abc.py',
+   'PYMODULE'),
+  ('psycopg.adapt',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\adapt.py',
+   'PYMODULE'),
+  ('psycopg.client_cursor',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\client_cursor.py',
+   'PYMODULE'),
+  ('psycopg.connection',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\connection.py',
+   'PYMODULE'),
+  ('psycopg.connection_async',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\connection_async.py',
+   'PYMODULE'),
+  ('psycopg.conninfo',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\conninfo.py',
+   'PYMODULE'),
+  ('psycopg.copy',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\copy.py',
+   'PYMODULE'),
+  ('psycopg.cursor',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\cursor.py',
+   'PYMODULE'),
+  ('psycopg.cursor_async',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\cursor_async.py',
+   'PYMODULE'),
+  ('psycopg.dbapi20',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\dbapi20.py',
+   'PYMODULE'),
+  ('psycopg.errors',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\errors.py',
+   'PYMODULE'),
+  ('psycopg.generators',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\generators.py',
+   'PYMODULE'),
+  ('psycopg.postgres',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\postgres.py',
+   'PYMODULE'),
+  ('psycopg.pq',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\pq\\__init__.py',
+   'PYMODULE'),
+  ('psycopg.pq._enums',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\pq\\_enums.py',
+   'PYMODULE'),
+  ('psycopg.pq._pq_ctypes',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\pq\\_pq_ctypes.py',
+   'PYMODULE'),
+  ('psycopg.pq.abc',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\pq\\abc.py',
+   'PYMODULE'),
+  ('psycopg.pq.misc',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\pq\\misc.py',
+   'PYMODULE'),
+  ('psycopg.pq.pq_ctypes',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\pq\\pq_ctypes.py',
+   'PYMODULE'),
+  ('psycopg.raw_cursor',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\raw_cursor.py',
+   'PYMODULE'),
+  ('psycopg.rows',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\rows.py',
+   'PYMODULE'),
+  ('psycopg.sql',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\sql.py',
+   'PYMODULE'),
+  ('psycopg.transaction',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\transaction.py',
+   'PYMODULE'),
+  ('psycopg.types',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\__init__.py',
+   'PYMODULE'),
+  ('psycopg.types.array',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\array.py',
+   'PYMODULE'),
+  ('psycopg.types.bool',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\bool.py',
+   'PYMODULE'),
+  ('psycopg.types.composite',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\composite.py',
+   'PYMODULE'),
+  ('psycopg.types.datetime',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\datetime.py',
+   'PYMODULE'),
+  ('psycopg.types.enum',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\enum.py',
+   'PYMODULE'),
+  ('psycopg.types.json',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\json.py',
+   'PYMODULE'),
+  ('psycopg.types.multirange',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\multirange.py',
+   'PYMODULE'),
+  ('psycopg.types.net',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\net.py',
+   'PYMODULE'),
+  ('psycopg.types.none',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\none.py',
+   'PYMODULE'),
+  ('psycopg.types.numeric',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\numeric.py',
+   'PYMODULE'),
+  ('psycopg.types.numpy',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\numpy.py',
+   'PYMODULE'),
+  ('psycopg.types.range',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\range.py',
+   'PYMODULE'),
+  ('psycopg.types.string',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\string.py',
+   'PYMODULE'),
+  ('psycopg.types.uuid',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\types\\uuid.py',
+   'PYMODULE'),
+  ('psycopg.version',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\version.py',
+   'PYMODULE'),
+  ('psycopg.waiting',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg\\waiting.py',
+   'PYMODULE'),
+  ('psycopg_binary',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg_binary\\__init__.py',
+   'PYMODULE'),
+  ('psycopg_binary._uuid',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg_binary\\_uuid.py',
+   'PYMODULE'),
+  ('psycopg_binary.version',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\psycopg_binary\\version.py',
+   'PYMODULE'),
   ('py_compile', 'C:\\Python313\\Lib\\py_compile.py', 'PYMODULE'),
   ('pydoc', 'C:\\Python313\\Lib\\pydoc.py', 'PYMODULE'),
   ('pydoc_data', 'C:\\Python313\\Lib\\pydoc_data\\__init__.py', 'PYMODULE'),
@@ -3987,6 +4303,94 @@
   ('tracemalloc', 'C:\\Python313\\Lib\\tracemalloc.py', 'PYMODULE'),
   ('tty', 'C:\\Python313\\Lib\\tty.py', 'PYMODULE'),
   ('typing', 'C:\\Python313\\Lib\\typing.py', 'PYMODULE'),
+  ('tzdata',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Africa',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Africa\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.America',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\America\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.America.Argentina',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\America\\Argentina\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.America.Indiana',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\America\\Indiana\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.America.Kentucky',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\America\\Kentucky\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.America.North_Dakota',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\America\\North_Dakota\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Antarctica',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Antarctica\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Arctic',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Arctic\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Asia',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Asia\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Atlantic',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Atlantic\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Australia',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Australia\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Brazil',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Brazil\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Canada',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Canada\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Chile',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Chile\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Etc',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Etc\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Europe',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Europe\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Indian',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Indian\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Mexico',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Mexico\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.Pacific',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\Pacific\\__init__.py',
+   'PYMODULE'),
+  ('tzdata.zoneinfo.US',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\.venv\\Lib\\site-packages\\tzdata\\zoneinfo\\US\\__init__.py',
+   'PYMODULE'),
   ('unittest', 'C:\\Python313\\Lib\\unittest\\__init__.py', 'PYMODULE'),
   ('unittest._log', 'C:\\Python313\\Lib\\unittest\\_log.py', 'PYMODULE'),
   ('unittest.async_case',
@@ -4148,4 +4552,10 @@
   ('zipfile._path.glob',
    'C:\\Python313\\Lib\\zipfile\\_path\\glob.py',
    'PYMODULE'),
-  ('zipimport', 'C:\\Python313\\Lib\\zipimport.py', 'PYMODULE')])
+  ('zipimport', 'C:\\Python313\\Lib\\zipimport.py', 'PYMODULE'),
+  ('zoneinfo', 'C:\\Python313\\Lib\\zoneinfo\\__init__.py', 'PYMODULE'),
+  ('zoneinfo._common', 'C:\\Python313\\Lib\\zoneinfo\\_common.py', 'PYMODULE'),
+  ('zoneinfo._tzpath', 'C:\\Python313\\Lib\\zoneinfo\\_tzpath.py', 'PYMODULE'),
+  ('zoneinfo._zoneinfo',
+   'C:\\Python313\\Lib\\zoneinfo\\_zoneinfo.py',
+   'PYMODULE')])

@@ -15,7 +15,7 @@ call .venv\Scripts\activate.bat
 
 REM Asegurar dependencias basicas de build
 python -m pip install --upgrade pip >nul 2>&1
-pip install pyinstaller pandas pillow pywin32 >nul 2>&1
+pip install pyinstaller pandas pillow pywin32 "psycopg[binary]" >nul 2>&1
 
 REM Construir ejecutable unico
 pyinstaller ^
@@ -33,6 +33,8 @@ pyinstaller ^
   --hidden-import=win32com.client ^
   --hidden-import=pythoncom ^
   --hidden-import=pywintypes ^
+  --hidden-import=psycopg ^
+  --hidden-import=psycopg_binary ^
   --name "AUTOMATISMOS_RESAMANIA" ^
   "%~dp0main.py"
 

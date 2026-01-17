@@ -1390,8 +1390,52 @@ class ResamaniaApp(tk.Tk):
             messagebox.showinfo("Config BD", "Configuracion guardada.", parent=win)
             win.destroy()
 
+        def probar():
+            host = host_var.get().strip()
+            port = port_var.get().strip() or "5432"
+            name = name_var.get().strip()
+            user = user_var.get().strip()
+            password = pass_var.get()
+            if not host:
+                messagebox.showwarning("Config BD", "Introduce el host o servidor.", parent=win)
+                return
+            try:
+                port_num = int(port)
+                if not (1 <= port_num <= 65535):
+                    raise ValueError("Puerto fuera de rango")
+            except Exception:
+                messagebox.showwarning("Config BD", "El puerto no es valido.", parent=win)
+                return
+            if not name:
+                messagebox.showwarning("Config BD", "Introduce el nombre de la base de datos.", parent=win)
+                return
+            if not user:
+                messagebox.showwarning("Config BD", "Introduce el usuario.", parent=win)
+                return
+            try:
+                import psycopg  # type: ignore
+            except Exception:
+                messagebox.showwarning("Config BD", "psycopg no esta instalado.", parent=win)
+                return
+            try:
+                with psycopg.connect(
+                    host=host,
+                    port=port,
+                    dbname=name,
+                    user=user,
+                    password=password,
+                    connect_timeout=5,
+                ) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+                        cur.fetchone()
+                messagebox.showinfo("Config BD", "Conexion OK.", parent=win)
+            except Exception as e:
+                messagebox.showerror("Config BD", f"No se pudo conectar.\n\nDetalle: {e}", parent=win)
+
         btns = tk.Frame(win)
         btns.pack(pady=(0, 10))
+        tk.Button(btns, text="Probar", width=10, command=probar).pack(side="left", padx=5)
         tk.Button(btns, text="Guardar", width=10, command=guardar).pack(side="left", padx=5)
         tk.Button(btns, text="Cancelar", width=10, command=win.destroy).pack(side="left", padx=5)
         win.bind("<Return>", lambda _e: guardar())
