@@ -254,12 +254,13 @@ class ResamaniaApp(tk.Tk):
         self.pmr_df_raw = None
         self.accesos_grupo_actual = None
 
-        self.auto_refresh_interval_ms = 300000
+        self.auto_refresh_interval_ms = 600000
         self.auto_refresh_job = None
         self.auto_refresh_last_error = None
         self.auto_refresh_last_error_shown = None
         self.local_cleanup_attempts = 0
         self.db_lock_path = None
+        self._prompted_exports = False
 
         self.create_widgets()
         if self._invalid_default_folder:
@@ -272,7 +273,8 @@ class ResamaniaApp(tk.Tk):
             set_data_dir(self.data_dir)
             self._set_data_dir(self.data_dir, show_message=False)
             self.refresh_persistent_data(show_messages=False)
-            self.load_data()
+            if self.load_data():
+                self._set_last_refresh()
         else:
             db_cfg = get_db_config()
             if db_cfg.get("host"):
@@ -280,8 +282,12 @@ class ResamaniaApp(tk.Tk):
                 self._set_data_dir(self.data_dir, show_message=False)
                 self.refresh_persistent_data(show_messages=False)
                 if self._db_exports_available():
-                    self.load_data()
+                    if self.load_data():
+                        self._set_last_refresh()
+                else:
+                    self.after(200, self._prompt_exports_folder)
         self.after(500, self.update_blink_states)
+        self._schedule_auto_refresh()
 
     def _role_label(self, area):
         labels = {
@@ -496,11 +502,13 @@ class ResamaniaApp(tk.Tk):
         tk.Button(botones_frame, text="CONFIG BD", command=self.abrir_config_db, bg="#bbdefb", fg="black").pack(
             side=tk.LEFT, padx=10
         )
-        tk.Button(botones_frame, text="Actualizar datos", command=self.refresh_all_data).pack(side=tk.LEFT, padx=10)
+        tk.Button(botones_frame, text="RECARGAR BD", command=self.recargar_bd).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=self.ir_a_incidencias_club, bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="GESTION CLIENTES", command=self.mostrar_gestion_clientes, bg="#c5e1a5", fg="black").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="PRESTAMOS", command=self.ir_a_prestamos, bg="#ffcc80", fg="black").pack(side=tk.LEFT, padx=10)
+        self.lbl_last_refresh = tk.Label(botones_frame, text="Ultima recarga: -", fg="#666666")
+        self.lbl_last_refresh.pack(side=tk.RIGHT, padx=10)
         self.staff_menu = tk.Menu(self, tearoff=0)
         self.staff_menu.add_command(label="GESTIONAR STAFF", command=self.abrir_gestion_staff)
         self.staff_menu.add_command(label="DIA DE ASUNTOS PROPIOS", command=self.enviar_asuntos_propios)
@@ -1696,7 +1704,57 @@ class ResamaniaApp(tk.Tk):
             return False
         csv_ok = self.load_data(show_messages=show_messages)
         self.refresh_persistent_data(show_messages=show_messages)
+        if csv_ok:
+            self._set_last_refresh()
         return csv_ok
+
+    def recargar_bd(self):
+        if not self._auto_refresh_allowed():
+            messagebox.showwarning(
+                "Recargar BD",
+                "Cierra las ventanas abiertas o termina la edicion actual antes de recargar.",
+                parent=self,
+            )
+            return False
+        self._bring_to_front()
+        if self.folder_path or self._db_exports_available():
+            ok = self.refresh_all_data(show_messages=False)
+        else:
+            ok = self.refresh_persistent_data(show_messages=False)
+        if ok is False:
+            err = self.auto_refresh_last_error or "No se pudo recargar la base de datos."
+            messagebox.showerror("Recargar BD", err, parent=self)
+            return False
+        self._set_last_refresh()
+        messagebox.showinfo("Recargar BD", "Datos recargados.", parent=self)
+        return True
+
+    def _set_last_refresh(self):
+        if hasattr(self, "lbl_last_refresh") and self.lbl_last_refresh:
+            ts = datetime.now().strftime("%d/%m/%Y %H:%M")
+            self.lbl_last_refresh.config(text=f"Ultima recarga: {ts}")
+
+    def _prompt_exports_folder(self):
+        if self._prompted_exports:
+            return
+        self._prompted_exports = True
+        if self.folder_path or self._db_exports_available():
+            return
+        if not messagebox.askyesno(
+            "CSV necesarios",
+            "No hay CSV cargados en la base de datos. Selecciona la carpeta de exportaciones para cargarlos.",
+            parent=self,
+        ):
+            return
+        self.select_folder()
+
+    def _auto_refresh_allowed(self):
+        for w in self.winfo_children():
+            if isinstance(w, tk.Toplevel) and w.winfo_viewable():
+                return False
+        if getattr(self, "incidencias_mode", None):
+            return False
+        return True
 
     def _schedule_auto_refresh(self):
         if self.auto_refresh_job is not None:
@@ -1707,8 +1765,12 @@ class ResamaniaApp(tk.Tk):
         self.auto_refresh_job = self.after(self.auto_refresh_interval_ms, self._auto_refresh_tick)
 
     def _auto_refresh_tick(self):
+        if not self._auto_refresh_allowed():
+            self._schedule_auto_refresh()
+            return
         if not self.folder_path:
             self.refresh_persistent_data(show_messages=False)
+            self._set_last_refresh()
             self._schedule_auto_refresh()
             return
         ok = self.refresh_all_data(show_messages=False)
@@ -1720,6 +1782,7 @@ class ResamaniaApp(tk.Tk):
         else:
             self.auto_refresh_last_error = None
             self.auto_refresh_last_error_shown = None
+            self._set_last_refresh()
         self._schedule_auto_refresh()
 
     def mostrar_en_tabla(self, tab_name, df, color=None):
