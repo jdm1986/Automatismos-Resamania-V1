@@ -487,8 +487,11 @@ class ResamaniaApp(tk.Tk):
             bg="#e0e0e0",
             fg="black",
         )
-        self.role_button.pack(side=tk.LEFT, padx=10)
-        tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder).pack(side=tk.LEFT, padx=10)
+        if is_feature_enabled("role_button", default=False):
+            self.role_button.pack(side=tk.LEFT, padx=10)
+        self.btn_select_folder = tk.Button(botones_frame, text="Seleccionar carpeta", command=self.select_folder)
+        if is_feature_enabled("select_folder_button", default=False):
+            self.btn_select_folder.pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="RUTAS DATOS", command=self.mostrar_rutas_datos).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="CONFIG BD", command=self.abrir_config_db, bg="#bbdefb", fg="black").pack(
             side=tk.LEFT, padx=10
@@ -1400,6 +1403,8 @@ class ResamaniaApp(tk.Tk):
         messagebox.showinfo("Rutas de datos", "\n".join(lines), parent=self)
 
     def abrir_config_db(self):
+        if not self._security_pin_ok():
+            return
         if not self._require_manager_access("Configurar BD"):
             return
         current = get_db_config()
@@ -5496,7 +5501,9 @@ class ResamaniaApp(tk.Tk):
         return True
 
     def _incidencias_pin_ok(self):
-        return self._require_write("incidencias_club")
+        if not self._security_pin_ok():
+            return False
+        return self._require_manager_access("Incidencias club")
 
     def _incidencias_color(self):
         palette = [
