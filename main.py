@@ -448,16 +448,24 @@ class ResamaniaApp(tk.Tk):
         right_frame.grid(row=0, column=2, sticky="nsew", padx=10)
 
         instrucciones = (
-            "- La carpeta seleccionada debe contener los siguientes archivos (exportados de Resamania y deben sobreescribir los existentes):\n\n"
+            "- Sistema centralizado en base de datos (PostgreSQL).\n"
+            "- Solo el PC CLUB debe seleccionar la carpeta y actualizar los CSV una vez al día.\n\n"
+            "   Archivos requeridos en la carpeta del PC CLUB:\n"
             "   - RESUMEN CLIENTE.csv\n"
             "   - ACCESOS.csv (intervalo de 4 semanas atrás)\n"
             "   - FACTURAS Y VALES.csv (intervalo de 4 semanas atrás)\n"
-            "   - IMPAGOS.csv (Exportar el día actual el archivo - Clientes con Incidente de Pago)\n\n"
+            "   - IMPAGOS.csv (Exportar el día actual - Clientes con Incidente de Pago)\n\n"
             "- Todos los archivos deben ser del mismo día de exportación.\n"
-            "- Pulsa el botón 'Seleccionar carpeta' para comenzar la revisión.\n"
+            "- Pulsa el botón 'Actualizar datos' para subir los CSV a la base de datos.\n"
+            "- Los demás PCs no necesitan carpeta ni CSV; leen todo desde la base de datos.\n"
+            "- Mapas: se admiten imágenes PNG y JPG/JPEG.\n"
+            "- Reportes visuales: solo se admiten imágenes JPG/JPEG.\n"
         )
         self.instrucciones_text = instrucciones
-        self.instrucciones_nota = "NOTA: Una vez seleccionada una carpeta, el programa la mantiene por defecto hasta que elijas otra."
+        self.instrucciones_nota = (
+            "NOTA: En el PC CLUB la carpeta se guarda por defecto. "
+            "En el portátil/manager solo configura la base de datos."
+        )
 
         # Logo Fitness Park (centro)
         logo_fp_path = get_logo_path("LogoFpark.png")
