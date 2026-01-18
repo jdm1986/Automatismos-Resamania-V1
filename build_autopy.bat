@@ -35,6 +35,7 @@ pyinstaller ^
   --hidden-import=pywintypes ^
   --hidden-import=psycopg ^
   --hidden-import=psycopg_binary ^
+  --hidden-import=psycopg.types.json ^
   --name "AUTOMATISMOS_RESAMANIA" ^
   "%~dp0main.py"
 

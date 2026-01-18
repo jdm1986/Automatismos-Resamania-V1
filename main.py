@@ -9,12 +9,14 @@ import unicodedata
 import time
 import uuid
 import tempfile
+import io
 from datetime import datetime, timedelta
 import re
 import urllib.parse
 import webbrowser
 import shutil
 import random
+import traceback
 from logic.wizville import procesar_wizville
 from logic.accesos import procesar_accesos_dobles, procesar_accesos_descuadrados, procesar_salidas_pmr_no_autorizadas, \
     procesar_morosos_accediendo
@@ -24,6 +26,7 @@ from logic.cumpleanos import obtener_cumpleanos_hoy
 from utils.file_loader import load_data_file
 from logic.impagos import ImpagosDB
 from logic.incidencias import IncidenciasDB
+from logic.state_store import AppStateStore
 
 
 def get_app_dir():
@@ -116,6 +119,13 @@ def set_user_role(role):
     _write_config(data)
 
 
+def is_feature_enabled(name: str, default=False):
+    data = _read_config()
+    flags = data.get("features", {}) if isinstance(data, dict) else {}
+    value = flags.get(name, default)
+    return bool(value)
+
+
 def get_logo_path(filename):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, filename)
@@ -151,6 +161,7 @@ class ResamaniaApp(tk.Tk):
         self.raw_accesos = None
         self.resumen_df = None
         self.data_dir = ""
+        self.state_store = None
 
         # Datos de prestamos
         self.prestamos_file = ""
@@ -262,6 +273,14 @@ class ResamaniaApp(tk.Tk):
             self._set_data_dir(self.data_dir, show_message=False)
             self.refresh_persistent_data(show_messages=False)
             self.load_data()
+        else:
+            db_cfg = get_db_config()
+            if db_cfg.get("host"):
+                self.data_dir = get_data_dir()
+                self._set_data_dir(self.data_dir, show_message=False)
+                self.refresh_persistent_data(show_messages=False)
+                if self._db_exports_available():
+                    self.load_data()
         self.after(500, self.update_blink_states)
 
     def _role_label(self, area):
@@ -361,6 +380,59 @@ class ResamaniaApp(tk.Tk):
                 if btn:
                     btn.configure(state="normal")
 
+    def _state_get(self, key, default, file_path=None):
+        store = getattr(self, "state_store", None)
+        if store and store.use_postgres:
+            try:
+                return store.get(key, default)
+            except Exception:
+                return default
+        if not file_path or not os.path.exists(file_path):
+            return default
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return default
+
+    def _state_set(self, key, value, file_path=None):
+        store = getattr(self, "state_store", None)
+        if store and store.use_postgres:
+            store.set(key, value)
+            return
+        if not file_path:
+            return
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(value, f, ensure_ascii=False, indent=2)
+
+    def _blob_ref(self, blob_id):
+        return f"blob:{blob_id}"
+
+    def _is_blob_ref(self, value):
+        return isinstance(value, str) and value.startswith("blob:")
+
+    def _blob_id_from_ref(self, value):
+        return value.split(":", 1)[1] if self._is_blob_ref(value) else ""
+
+    def _store_image_blob(self, ruta, allow_png=False):
+        store = getattr(self, "state_store", None)
+        if not store or not store.use_postgres:
+            return ""
+        ext = os.path.splitext(ruta)[1].lower()
+        if ext not in (".jpg", ".jpeg") and not (allow_png and ext == ".png"):
+            return ""
+        try:
+            img = Image.open(ruta)
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=80, optimize=True)
+            blob_id = store.put_blob(buf.getvalue(), content_type="image/jpeg")
+            return self._blob_ref(blob_id)
+        except Exception:
+            return ""
+
     def create_widgets(self):
         top_frame = tk.Frame(self)
         top_frame.pack(pady=10, fill="x")
@@ -430,7 +502,8 @@ class ResamaniaApp(tk.Tk):
             command=self.enviar_felicitacion,
             fg="#b30000",
         )
-        self.btn_enviar_felicitacion.pack(side=tk.LEFT, padx=5)
+        if is_feature_enabled("felicitacion_button", default=False):
+            self.btn_enviar_felicitacion.pack(side=tk.LEFT, padx=5)
         self.btn_avanza_fit = tk.Button(
             self.gestion_clientes_frame,
             text="ENVIO MARTES AVANZA FIT",
@@ -723,40 +796,32 @@ class ResamaniaApp(tk.Tk):
         self.mostrar_en_tabla(tab_name, df)
 
     def cargar_pmr_autorizados(self):
-        if os.path.exists(self.pmr_autorizados_file):
-            try:
-                with open(self.pmr_autorizados_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, list):
-                    self.pmr_autorizados = {str(x).strip() for x in data if str(x).strip()}
-            except Exception:
-                self.pmr_autorizados = set()
+        try:
+            data = self._state_get("pmr_autorizados", [], self.pmr_autorizados_file)
+            if isinstance(data, list):
+                self.pmr_autorizados = {str(x).strip() for x in data if str(x).strip()}
+        except Exception:
+            self.pmr_autorizados = set()
 
     def guardar_pmr_autorizados(self):
-        os.makedirs(os.path.dirname(self.pmr_autorizados_file), exist_ok=True)
-        with open(self.pmr_autorizados_file, "w", encoding="utf-8") as f:
-            json.dump(sorted(self.pmr_autorizados), f, ensure_ascii=False, indent=2)
+        self._state_set("pmr_autorizados", sorted(self.pmr_autorizados), self.pmr_autorizados_file)
 
     def cargar_pmr_advertencias(self):
-        if os.path.exists(self.pmr_advertencias_file):
-            try:
-                with open(self.pmr_advertencias_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, list):
-                    advertencias = {}
-                    for item in data:
-                        codigo = str(item.get("codigo", "")).strip()
-                        if codigo:
-                            advertencias[codigo] = item
-                    self.pmr_advertencias = advertencias
-            except Exception:
-                self.pmr_advertencias = {}
+        try:
+            data = self._state_get("pmr_advertencias", [], self.pmr_advertencias_file)
+            if isinstance(data, list):
+                advertencias = {}
+                for item in data:
+                    codigo = str(item.get("codigo", "")).strip()
+                    if codigo:
+                        advertencias[codigo] = item
+                self.pmr_advertencias = advertencias
+        except Exception:
+            self.pmr_advertencias = {}
 
     def guardar_pmr_advertencias(self):
-        os.makedirs(os.path.dirname(self.pmr_advertencias_file), exist_ok=True)
         data = list(self.pmr_advertencias.values())
-        with open(self.pmr_advertencias_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        self._state_set("pmr_advertencias", data, self.pmr_advertencias_file)
 
     def _pmr_norm(self, text):
         t = unicodedata.normalize("NFD", str(text or "")).upper().strip()
@@ -1058,11 +1123,8 @@ class ResamaniaApp(tk.Tk):
 
     def cargar_staff(self):
         self.staff = []
-        if not os.path.exists(self.staff_file):
-            return
         try:
-            with open(self.staff_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            data = self._state_get("staff", [], self.staff_file)
             items = []
             if isinstance(data, list):
                 items = data
@@ -1076,9 +1138,7 @@ class ResamaniaApp(tk.Tk):
             self.staff = []
 
     def guardar_staff(self):
-        os.makedirs(os.path.dirname(self.staff_file), exist_ok=True)
-        with open(self.staff_file, "w", encoding="utf-8") as f:
-            json.dump(self.staff, f, ensure_ascii=False, indent=2)
+        self._state_set("staff", self.staff, self.staff_file)
 
     def _staff_display_name(self, item):
         nombre = str(item.get("nombre", "")).strip()
@@ -1192,6 +1252,8 @@ class ResamaniaApp(tk.Tk):
             self.notebook.select(tab)
 
     def ir_a_gestion_bajas(self):
+        if not self._security_pin_ok():
+            return
         if not self._require_manager_access("Gestion bajas"):
             return
         tab = self.tabs.get("Gestion Bajas")
@@ -1199,6 +1261,8 @@ class ResamaniaApp(tk.Tk):
             self.notebook.select(tab)
 
     def ir_a_gestion_suspensiones(self):
+        if not self._security_pin_ok():
+            return
         if not self._require_manager_access("Gestion suspensiones"):
             return
         tab = self.tabs.get("Gestion Suspensiones")
@@ -1242,6 +1306,7 @@ class ResamaniaApp(tk.Tk):
         self.impagos_db = ImpagosDB(os.path.join(self.data_dir, "impagos.db"), db_config=db_config)
         self.staff_file = os.path.join(self.data_dir, "staff.json")
         self.incidencias_db = IncidenciasDB(os.path.join(self.data_dir, "incidencias.db"), db_config=db_config)
+        self.state_store = AppStateStore(db_config)
         self.pmr_autorizados_file = os.path.join(self.data_dir, "pmr_autorizados.json")
         self.pmr_advertencias_file = os.path.join(self.data_dir, "pmr_advertencias.json")
         if hasattr(self, "incidencias_canvas") and self.incidencias_canvas:
@@ -1383,12 +1448,17 @@ class ResamaniaApp(tk.Tk):
             if not user:
                 messagebox.showwarning("Config BD", "Introduce el usuario.", parent=win)
                 return
-            set_db_config(host, port, name, user, password)
-            if self.data_dir:
-                self.impagos_db = ImpagosDB(os.path.join(self.data_dir, "impagos.db"), db_config=get_db_config())
-                self.incidencias_db = IncidenciasDB(os.path.join(self.data_dir, "incidencias.db"), db_config=get_db_config())
-            messagebox.showinfo("Config BD", "Configuracion guardada.", parent=win)
-            win.destroy()
+            try:
+                set_db_config(host, port, name, user, password)
+                if self.data_dir:
+                    db_cfg = get_db_config()
+                    self.impagos_db = ImpagosDB(os.path.join(self.data_dir, "impagos.db"), db_config=db_cfg)
+                    self.incidencias_db = IncidenciasDB(os.path.join(self.data_dir, "incidencias.db"), db_config=db_cfg)
+                    self.state_store = AppStateStore(db_cfg)
+                messagebox.showinfo("Config BD", "Configuracion guardada.", parent=win)
+                win.destroy()
+            except Exception as e:
+                messagebox.showerror("Config BD", f"No se pudo guardar.\n\nDetalle: {e}", parent=win)
 
         def probar():
             host = host_var.get().strip()
@@ -1446,11 +1516,14 @@ class ResamaniaApp(tk.Tk):
 
     def load_data(self, show_messages=True):
         if not self.folder_path:
-            if show_messages:
-                messagebox.showerror("Error", "No se ha seleccionado carpeta")
-            return False
+            if not self._db_exports_available():
+                if show_messages:
+                    messagebox.showerror("Error", "No se ha seleccionado carpeta")
+                return False
 
         try:
+            if self.folder_path:
+                self._sync_exports_to_db()
             resumen = load_data_file(self.folder_path, "RESUMEN CLIENTE")
             self.resumen_df = resumen.copy()
             accesos = load_data_file(self.folder_path, "ACCESOS")
@@ -1483,6 +1556,60 @@ class ResamaniaApp(tk.Tk):
             else:
                 self.auto_refresh_last_error = str(e)
             return False
+
+    def _db_exports_available(self):
+        store = getattr(self, "state_store", None)
+        if not store or not store.use_postgres:
+            return False
+        for base in ("RESUMEN CLIENTE", "ACCESOS", "FACTURAS Y VALES", "IMPAGOS"):
+            meta = store.get(f"export:{base}", {})
+            if not isinstance(meta, dict) or not str(meta.get("blob", "")).strip():
+                return False
+        return True
+
+    def _find_export_file(self, base_name):
+        if not self.folder_path:
+            return ""
+        candidates = [f"{base_name}.csv", f"{base_name}.xlsx"]
+        for filename in candidates:
+            full_path = os.path.join(self.folder_path, filename)
+            if os.path.exists(full_path):
+                return full_path
+        return ""
+
+    def _sync_exports_to_db(self):
+        store = getattr(self, "state_store", None)
+        if not store or not store.use_postgres:
+            return
+        for base in ("RESUMEN CLIENTE", "ACCESOS", "FACTURAS Y VALES", "IMPAGOS"):
+            path = self._find_export_file(base)
+            if not path:
+                continue
+            try:
+                mtime = os.path.getmtime(path)
+                key = f"export:{base}"
+                meta = store.get(key, {}) if hasattr(store, "get") else {}
+                if isinstance(meta, dict) and meta.get("mtime") == mtime:
+                    continue
+                with open(path, "rb") as f:
+                    data = f.read()
+                blob_id = store.put_blob(data, content_type="application/octet-stream")
+                old_blob = meta.get("blob") if isinstance(meta, dict) else ""
+                if old_blob:
+                    try:
+                        store.delete_blob(old_blob)
+                    except Exception:
+                        pass
+                store.set(
+                    key,
+                    {
+                        "blob": blob_id,
+                        "filename": os.path.basename(path),
+                        "mtime": mtime,
+                    },
+                )
+            except Exception:
+                continue
 
     def _db_lock_file(self):
         if not self.data_dir:
@@ -2122,9 +2249,8 @@ class ResamaniaApp(tk.Tk):
 
     def cargar_prestamos_json(self):
         try:
-            if os.path.exists(self.prestamos_file):
-                with open(self.prestamos_file, "r", encoding="utf-8") as f:
-                    self.prestamos = json.load(f)
+            data = self._state_get("prestamos", [], self.prestamos_file)
+            self.prestamos = data if isinstance(data, list) else []
             # Asegura IDs para prestamos antiguos
             changed = False
             for p in self.prestamos:
@@ -2142,11 +2268,8 @@ class ResamaniaApp(tk.Tk):
 
     def cargar_incidencias_socios(self):
         try:
-            if os.path.exists(self.incidencias_socios_file):
-                with open(self.incidencias_socios_file, "r", encoding="utf-8") as f:
-                    self.incidencias_socios = json.load(f)
-            else:
-                self.incidencias_socios = []
+            data = self._state_get("incidencias_socios", [], self.incidencias_socios_file)
+            self.incidencias_socios = data if isinstance(data, list) else []
             changed = False
             for inc in self.incidencias_socios:
                 if "id" not in inc:
@@ -2163,9 +2286,7 @@ class ResamaniaApp(tk.Tk):
             self.refrescar_incidencias_socios_tree()
 
     def guardar_incidencias_socios(self):
-        os.makedirs(os.path.dirname(self.incidencias_socios_file), exist_ok=True)
-        with open(self.incidencias_socios_file, "w", encoding="utf-8") as f:
-            json.dump(self.incidencias_socios, f, ensure_ascii=False, indent=2)
+        self._state_set("incidencias_socios", self.incidencias_socios, self.incidencias_socios_file)
 
     def refrescar_incidencias_socios_tree(self):
         if not hasattr(self, "tree_incidencias_socios"):
@@ -2683,11 +2804,8 @@ class ResamaniaApp(tk.Tk):
 
     def cargar_objetos_taquillas(self):
         try:
-            if os.path.exists(self.objetos_taquillas_file):
-                with open(self.objetos_taquillas_file, "r", encoding="utf-8") as f:
-                    self.objetos_taquillas = json.load(f)
-            else:
-                self.objetos_taquillas = []
+            data = self._state_get("objetos_taquillas", [], self.objetos_taquillas_file)
+            self.objetos_taquillas = data if isinstance(data, list) else []
             changed = False
             for item in self.objetos_taquillas:
                 if "id" not in item:
@@ -2718,9 +2836,7 @@ class ResamaniaApp(tk.Tk):
 
     def guardar_objetos_taquillas(self):
         try:
-            os.makedirs(os.path.dirname(self.objetos_taquillas_file), exist_ok=True)
-            with open(self.objetos_taquillas_file, "w", encoding="utf-8") as f:
-                json.dump(self.objetos_taquillas, f, ensure_ascii=False, indent=2)
+            self._state_set("objetos_taquillas", self.objetos_taquillas, self.objetos_taquillas_file)
         except Exception:
             pass
 
@@ -3295,11 +3411,8 @@ class ResamaniaApp(tk.Tk):
 
     def cargar_bajas(self):
         try:
-            if os.path.exists(self.bajas_file):
-                with open(self.bajas_file, "r", encoding="utf-8") as f:
-                    self.bajas = json.load(f)
-            else:
-                self.bajas = []
+            data = self._state_get("bajas", [], self.bajas_file)
+            self.bajas = data if isinstance(data, list) else []
             changed = False
             for item in self.bajas:
                 if "id" not in item:
@@ -3342,9 +3455,7 @@ class ResamaniaApp(tk.Tk):
 
     def guardar_bajas(self):
         try:
-            os.makedirs(os.path.dirname(self.bajas_file), exist_ok=True)
-            with open(self.bajas_file, "w", encoding="utf-8") as f:
-                json.dump(self.bajas, f, ensure_ascii=False, indent=2)
+            self._state_set("bajas", self.bajas, self.bajas_file)
         except Exception:
             pass
 
@@ -3760,57 +3871,46 @@ class ResamaniaApp(tk.Tk):
 
     def cargar_clientes_ext(self):
         try:
-            if os.path.exists(self.clientes_ext_file):
-                with open(self.clientes_ext_file, "r", encoding="utf-8") as f:
-                    self.clientes_ext = json.load(f)
+            data = self._state_get("clientes_ext", [], self.clientes_ext_file)
+            self.clientes_ext = data if isinstance(data, list) else []
         except Exception:
             self.clientes_ext = []
 
     def cargar_felicitaciones(self):
         try:
-            if os.path.exists(self.felicitaciones_file):
-                with open(self.felicitaciones_file, "r", encoding="utf-8") as f:
-                    self.felicitaciones_enviadas = json.load(f)
+            data = self._state_get("felicitaciones_enviadas", {}, self.felicitaciones_file)
+            self.felicitaciones_enviadas = data if isinstance(data, dict) else {}
         except Exception:
             self.felicitaciones_enviadas = {}
 
     def guardar_prestamos_json(self):
         try:
-            os.makedirs(os.path.dirname(self.prestamos_file), exist_ok=True)
-            with open(self.prestamos_file, "w", encoding="utf-8") as f:
-                json.dump(self.prestamos, f, ensure_ascii=False, indent=2)
+            self._state_set("prestamos", self.prestamos, self.prestamos_file)
         except Exception:
             pass  # silencioso para no romper UI
 
     def guardar_clientes_ext(self):
         try:
-            os.makedirs(os.path.dirname(self.clientes_ext_file), exist_ok=True)
-            with open(self.clientes_ext_file, "w", encoding="utf-8") as f:
-                json.dump(self.clientes_ext, f, ensure_ascii=False, indent=2)
+            self._state_set("clientes_ext", self.clientes_ext, self.clientes_ext_file)
         except Exception:
             pass
 
     def guardar_felicitaciones(self):
         try:
-            os.makedirs(os.path.dirname(self.felicitaciones_file), exist_ok=True)
-            with open(self.felicitaciones_file, "w", encoding="utf-8") as f:
-                json.dump(self.felicitaciones_enviadas, f, ensure_ascii=False, indent=2)
+            self._state_set("felicitaciones_enviadas", self.felicitaciones_enviadas, self.felicitaciones_file)
         except Exception:
             pass
 
     def cargar_avanza_fit_envios(self):
         try:
-            if os.path.exists(self.avanza_fit_envios_file):
-                with open(self.avanza_fit_envios_file, "r", encoding="utf-8") as f:
-                    self.avanza_fit_envios = json.load(f)
+            data = self._state_get("avanza_fit_envios", {}, self.avanza_fit_envios_file)
+            self.avanza_fit_envios = data if isinstance(data, dict) else {}
         except Exception:
             self.avanza_fit_envios = {}
 
     def guardar_avanza_fit_envios(self):
         try:
-            os.makedirs(os.path.dirname(self.avanza_fit_envios_file), exist_ok=True)
-            with open(self.avanza_fit_envios_file, "w", encoding="utf-8") as f:
-                json.dump(self.avanza_fit_envios, f, ensure_ascii=False, indent=2)
+            self._state_set("avanza_fit_envios", self.avanza_fit_envios, self.avanza_fit_envios_file)
         except Exception:
             pass
 
@@ -4428,6 +4528,8 @@ class ResamaniaApp(tk.Tk):
             '</div>'
         )
     def ir_a_impagos(self):
+        if not self._security_pin_ok():
+            return
         if not self._require_manager_access("Impagos"):
             return
         tab = self.tabs.get("Impagos")
@@ -4705,11 +4807,8 @@ class ResamaniaApp(tk.Tk):
 
     def cargar_suspensiones(self):
         try:
-            if os.path.exists(self.suspensiones_file):
-                with open(self.suspensiones_file, "r", encoding="utf-8") as f:
-                    self.suspensiones = json.load(f)
-            else:
-                self.suspensiones = []
+            data = self._state_get("suspensiones", [], self.suspensiones_file)
+            self.suspensiones = data if isinstance(data, list) else []
             changed = False
             for item in self.suspensiones:
                 if "id" not in item:
@@ -4763,9 +4862,7 @@ class ResamaniaApp(tk.Tk):
 
     def guardar_suspensiones(self):
         try:
-            os.makedirs(os.path.dirname(self.suspensiones_file), exist_ok=True)
-            with open(self.suspensiones_file, "w", encoding="utf-8") as f:
-                json.dump(self.suspensiones, f, ensure_ascii=False, indent=2)
+            self._state_set("suspensiones", self.suspensiones, self.suspensiones_file)
         except Exception:
             pass
 
@@ -5545,17 +5642,21 @@ class ResamaniaApp(tk.Tk):
             parent=self,
             title="Selecciona reporte visual",
             filetypes=[
-                ("Imagenes", "*.png;*.jpg;*.jpeg;*.gif;*.bmp"),
-                ("Video", "*.mp4;*.avi;*.mov;*.mkv;*.wmv"),
-                ("Todos", "*.*"),
+                ("JPEG", "*.jpg;*.jpeg"),
             ],
         )
         if not ruta:
             return ""
+        ext = os.path.splitext(ruta)[1].lower()
+        if ext not in (".jpg", ".jpeg"):
+            messagebox.showwarning("Reporte visual", "Solo se admiten imagenes .jpg o .jpeg.", parent=self)
+            return ""
+        blob_ref = self._store_image_blob(ruta, allow_png=False)
+        if blob_ref:
+            return blob_ref
         try:
             reports_dir = os.path.join(self.data_dir, "incidencias_reportes")
             os.makedirs(reports_dir, exist_ok=True)
-            ext = os.path.splitext(ruta)[1]
             destino = os.path.join(reports_dir, f"reporte_{uuid.uuid4().hex}{ext}")
             shutil.copy2(ruta, destino)
             return os.path.basename(destino)
@@ -5563,6 +5664,23 @@ class ResamaniaApp(tk.Tk):
             return ruta
 
     def _incidencias_ver_reporte(self, ruta):
+        if self._is_blob_ref(ruta):
+            store = getattr(self, "state_store", None)
+            if not store or not store.use_postgres:
+                messagebox.showwarning("Reporte visual", "Reporte en BD, pero no hay conexion.", parent=self)
+                return
+            _ctype, data = store.get_blob(self._blob_id_from_ref(ruta))
+            if not data:
+                messagebox.showwarning("Reporte visual", "No se encontro el reporte en la BD.", parent=self)
+                return
+            try:
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+                tmp.write(data)
+                tmp.close()
+                os.startfile(tmp.name)
+            except Exception as exc:
+                messagebox.showerror("Reporte visual", f"No se pudo abrir el reporte.\nDetalle: {exc}", parent=self)
+            return
         ruta_resuelta = self._incidencias_resolve_reporte_path(ruta)
         if not ruta_resuelta:
             reports_dir = os.path.join(self.data_dir, "incidencias_reportes")
@@ -5578,6 +5696,30 @@ class ResamaniaApp(tk.Tk):
             messagebox.showerror("Reporte visual", f"No se pudo abrir el reporte.\nDetalle: {exc}", parent=self)
 
     def _incidencias_guardar_reporte(self, ruta):
+        if self._is_blob_ref(ruta):
+            store = getattr(self, "state_store", None)
+            if not store or not store.use_postgres:
+                messagebox.showwarning("Reporte visual", "Reporte en BD, pero no hay conexion.", parent=self)
+                return
+            _ctype, data = store.get_blob(self._blob_id_from_ref(ruta))
+            if not data:
+                messagebox.showwarning("Reporte visual", "No se encontro el reporte en la BD.", parent=self)
+                return
+            destino = filedialog.asksaveasfilename(
+                parent=self,
+                title="Guardar reporte visual",
+                initialfile="reporte.jpg",
+                defaultextension=".jpg",
+            )
+            if not destino:
+                return
+            try:
+                with open(destino, "wb") as f:
+                    f.write(data)
+                messagebox.showinfo("Reporte visual", f"Reporte guardado en: {destino}", parent=self)
+            except Exception as exc:
+                messagebox.showerror("Reporte visual", f"No se pudo guardar el reporte.\nDetalle: {exc}", parent=self)
+            return
         ruta_resuelta = self._incidencias_resolve_reporte_path(ruta)
         if not ruta_resuelta:
             messagebox.showwarning("Reporte visual", "No se encontro el archivo del reporte.", parent=self)
@@ -5638,14 +5780,24 @@ class ResamaniaApp(tk.Tk):
         maps_dir = os.path.join(self.data_dir, "maps")
         os.makedirs(maps_dir, exist_ok=True)
         for _ in range(cantidad):
-            ruta = filedialog.askopenfilename(filetypes=[("PNG", "*.png")])
+            ruta = filedialog.askopenfilename(
+                filetypes=[("Imagen", "*.png;*.jpg;*.jpeg")]
+            )
             if not ruta:
                 continue
             nombre = os.path.basename(ruta)
-            destino = os.path.join(maps_dir, nombre)
-            shutil.copy2(ruta, destino)
-            img = Image.open(destino)
-            self.incidencias_db.add_map(nombre, nombre, img.width, img.height)
+            blob_ref = ""
+            store = getattr(self, "state_store", None)
+            if store and store.use_postgres:
+                blob_ref = self._store_image_blob(ruta, allow_png=True)
+            if blob_ref:
+                img = Image.open(ruta)
+                self.incidencias_db.add_map(nombre, blob_ref, img.width, img.height)
+            else:
+                destino = os.path.join(maps_dir, nombre)
+                shutil.copy2(ruta, destino)
+                img = Image.open(destino)
+                self.incidencias_db.add_map(nombre, nombre, img.width, img.height)
         self.incidencias_cargar_listado_mapas()
 
     def incidencias_borrar_mapa(self):
@@ -5661,9 +5813,14 @@ class ResamaniaApp(tk.Tk):
         if not messagebox.askyesno("Borrar mapa", f"Borrar el mapa {nombre} y todo lo asociado?", parent=self):
             return
         try:
-            ruta_resuelta = self._incidencias_resolve_map_path(ruta)
-            if ruta_resuelta and os.path.exists(ruta_resuelta):
-                os.remove(ruta_resuelta)
+            if self._is_blob_ref(ruta):
+                store = getattr(self, "state_store", None)
+                if store and store.use_postgres:
+                    store.delete_blob(self._blob_id_from_ref(ruta))
+            else:
+                ruta_resuelta = self._incidencias_resolve_map_path(ruta)
+                if ruta_resuelta and os.path.exists(ruta_resuelta):
+                    os.remove(ruta_resuelta)
         except Exception:
             pass
         self.incidencias_db.delete_map(mapa_id)
@@ -5696,27 +5853,45 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_area_items = {}
         self.incidencias_machine_items = {}
         self.incidencias_machine_area = {}
-        ruta_resuelta = self._incidencias_resolve_map_path(ruta, nombre)
-        if not ruta_resuelta:
-            self._bring_to_front()
-            messagebox.showwarning(
-                "Mapas",
-                f"No se encontro el archivo del mapa.\n\nRuta guardada:\n{ruta}\n\nNombre:\n{nombre}",
-                parent=self,
-            )
-            return
-        if ruta_resuelta != ruta:
-            self.incidencias_db.update_map_path(mapa_id, ruta_resuelta)
-        try:
-            img = Image.open(ruta_resuelta)
-        except Exception as e:
-            self._bring_to_front()
-            messagebox.showerror(
-                "Mapas",
-                f"No se pudo abrir el mapa:\n{ruta_resuelta}\n\nDetalle: {e}",
-                parent=self,
-            )
-            return
+        if self._is_blob_ref(ruta):
+            store = getattr(self, "state_store", None)
+            if not store or not store.use_postgres:
+                self._bring_to_front()
+                messagebox.showwarning("Mapas", "Mapa en BD, pero no hay conexion.", parent=self)
+                return
+            _ctype, data = store.get_blob(self._blob_id_from_ref(ruta))
+            if not data:
+                self._bring_to_front()
+                messagebox.showwarning("Mapas", "No se encontro el mapa en la BD.", parent=self)
+                return
+            try:
+                img = Image.open(io.BytesIO(data))
+            except Exception as e:
+                self._bring_to_front()
+                messagebox.showerror("Mapas", f"No se pudo abrir el mapa en BD.\n\nDetalle: {e}", parent=self)
+                return
+        else:
+            ruta_resuelta = self._incidencias_resolve_map_path(ruta, nombre)
+            if not ruta_resuelta:
+                self._bring_to_front()
+                messagebox.showwarning(
+                    "Mapas",
+                    f"No se encontro el archivo del mapa.\n\nRuta guardada:\n{ruta}\n\nNombre:\n{nombre}",
+                    parent=self,
+                )
+                return
+            if ruta_resuelta != ruta:
+                self.incidencias_db.update_map_path(mapa_id, ruta_resuelta)
+            try:
+                img = Image.open(ruta_resuelta)
+            except Exception as e:
+                self._bring_to_front()
+                messagebox.showerror(
+                    "Mapas",
+                    f"No se pudo abrir el mapa:\n{ruta_resuelta}\n\nDetalle: {e}",
+                    parent=self,
+                )
+                return
         self.incidencias_img = ImageTk.PhotoImage(img)
         self.incidencias_canvas.create_image(0, 0, anchor="nw", image=self.incidencias_img)
         self.incidencias_canvas.config(scrollregion=(0, 0, img.width, img.height))
@@ -5737,6 +5912,8 @@ class ResamaniaApp(tk.Tk):
 
     def _incidencias_resolve_map_path(self, ruta, nombre=None):
         if not ruta:
+            return ""
+        if self._is_blob_ref(ruta):
             return ""
         ruta_norm = os.path.normpath(ruta)
         if os.path.isabs(ruta_norm) and os.path.exists(ruta_norm):
@@ -5764,6 +5941,8 @@ class ResamaniaApp(tk.Tk):
 
     def _incidencias_resolve_reporte_path(self, ruta):
         if not ruta:
+            return ""
+        if self._is_blob_ref(ruta):
             return ""
         ruta_norm = os.path.normpath(ruta)
         reports_dir = os.path.join(self.data_dir, "incidencias_reportes")
@@ -7293,5 +7472,18 @@ Cuerpo copiado al portapapeles. Envia un correo a {destinatario} con asunto:
 
 
 if __name__ == "__main__":
-    app = ResamaniaApp()
-    app.mainloop()
+    try:
+        app = ResamaniaApp()
+        app.mainloop()
+    except Exception:
+        try:
+            log_path = os.path.join(get_app_dir(), "app.log")
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write("\n=== FATAL ERROR ===\n")
+                f.write(datetime.now().isoformat())
+                f.write("\n")
+                f.write(traceback.format_exc())
+                f.write("\n")
+        except Exception:
+            pass
+        raise

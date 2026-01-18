@@ -27,6 +27,7 @@ class IncidenciasDB:
             dbname=self.db_config.get("name"),
             user=self.db_config.get("user"),
             password=self.db_config.get("password"),
+            connect_timeout=5,
         )
 
     def _sql(self, sql: str) -> str:

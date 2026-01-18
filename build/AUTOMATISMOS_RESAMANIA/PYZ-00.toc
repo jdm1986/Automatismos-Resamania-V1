@@ -694,6 +694,10 @@
    'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
    'V1\\logic\\incidencias.py',
    'PYMODULE'),
+  ('logic.state_store',
+   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
+   'V1\\logic\\state_store.py',
+   'PYMODULE'),
   ('logic.ultimate',
    'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
    'V1\\logic\\ultimate.py',
