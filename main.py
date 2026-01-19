@@ -254,7 +254,7 @@ class ResamaniaApp(tk.Tk):
         self.pmr_df_raw = None
         self.accesos_grupo_actual = None
 
-        self.auto_refresh_interval_ms = 600000
+        self.auto_refresh_interval_ms = 900000
         self.auto_refresh_job = None
         self.auto_refresh_last_error = None
         self.auto_refresh_last_error_shown = None
@@ -287,7 +287,6 @@ class ResamaniaApp(tk.Tk):
                 else:
                     self.after(200, self._prompt_exports_folder)
         self.after(500, self.update_blink_states)
-        self._schedule_auto_refresh()
 
     def _role_label(self, area):
         labels = {
@@ -1717,10 +1716,12 @@ class ResamaniaApp(tk.Tk):
             )
             return False
         self._bring_to_front()
-        if self.folder_path or self._db_exports_available():
-            ok = self.refresh_all_data(show_messages=False)
-        else:
-            ok = self.refresh_persistent_data(show_messages=False)
+        def run_refresh():
+            if self.folder_path or self._db_exports_available():
+                return self.refresh_all_data(show_messages=False)
+            return self.refresh_persistent_data(show_messages=False)
+
+        ok = self._with_loading("Recargando datos...", run_refresh)
         if ok is False:
             err = self.auto_refresh_last_error or "No se pudo recargar la base de datos."
             messagebox.showerror("Recargar BD", err, parent=self)
@@ -1733,6 +1734,25 @@ class ResamaniaApp(tk.Tk):
         if hasattr(self, "lbl_last_refresh") and self.lbl_last_refresh:
             ts = datetime.now().strftime("%d/%m/%Y %H:%M")
             self.lbl_last_refresh.config(text=f"Ultima recarga: {ts}")
+
+    def _with_loading(self, message, func):
+        win = tk.Toplevel(self)
+        win.title("Recargando")
+        win.transient(self)
+        win.grab_set()
+        win.resizable(False, False)
+        label = tk.Label(win, text=message, padx=20, pady=15)
+        label.pack()
+        self._incidencias_center_window(win)
+        self.update_idletasks()
+        try:
+            return func()
+        finally:
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
 
     def _prompt_exports_folder(self):
         if self._prompted_exports:
@@ -1769,11 +1789,11 @@ class ResamaniaApp(tk.Tk):
             self._schedule_auto_refresh()
             return
         if not self.folder_path:
-            self.refresh_persistent_data(show_messages=False)
+            self._with_loading("Auto-recargando datos...", lambda: self.refresh_persistent_data(show_messages=False))
             self._set_last_refresh()
             self._schedule_auto_refresh()
             return
-        ok = self.refresh_all_data(show_messages=False)
+        ok = self._with_loading("Auto-recargando datos...", lambda: self.refresh_all_data(show_messages=False))
         if not ok:
             err = self.auto_refresh_last_error
             if err and err != self.auto_refresh_last_error_shown:
