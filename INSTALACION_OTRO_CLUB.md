@@ -116,3 +116,9 @@ C:\AUTOMATIZACIONES\AUTOMATISMOS_RESAMANIA.exe
 - No conecta: revisar firewall, pg_hba.conf y usar IP.
 - No carga datos: verificar que los CSV se subieron desde PC Club.
 - No aparece mapa: cargar primero en PC Club.
+
+## H) Backups recomendados
+- Backup diario local: C:\AUTOMATIZACIONES\backups
+- Copia automatica a OneDrive (ejemplo):
+  C:\Users\FP Villalobos\VILLALOBOS CLUB\OneDrive - UpGyms Iberia\BACKUP AUTOMATISMOS
+- Ver scripts: scripts/backup_postgres.ps1 y scripts/restore_postgres.ps1
