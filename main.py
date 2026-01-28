@@ -565,15 +565,11 @@ class ResamaniaApp(tk.Tk):
         tab_colors = {
             "Wizville": "#6fa8dc",
             "Accesos": "#a4c2f4",
-            "Accesos Dobles": "#b4a7d6",
-            "Accesos Descuadrados": "#8e7cc3",
             "Salidas PMR No Autorizadas": "#c27ba0",
-            "Morosos Accediendo": "#e06666",
             "Servicios": "#b6d7a8",
             "Socios Ultimate": "#76a5af",
             "Socios Yanga": "#93c47d",
             "Avanza Fit": "#ffd966",
-            "Cumpleaños": "#f9cb9c",
             "Accesos Cliente": "#cfe2f3",
             "Prestamos": "#ffb74d",
             "Impagos": "#ff6b6b",
@@ -588,20 +584,16 @@ class ResamaniaApp(tk.Tk):
 
         self.tabs = {}
         ocultar_tabs = {
-            "Accesos Dobles",
-            "Accesos Descuadrados",
             "Salidas PMR No Autorizadas",
-            "Morosos Accediendo",
             "Socios Ultimate",
             "Socios Yanga",
             "Staff",
         }
         for tab_name in [
             "Wizville", "Accesos", "Servicios",
-            "Accesos Dobles", "Accesos Descuadrados",
-            "Salidas PMR No Autorizadas", "Morosos Accediendo",
+            "Salidas PMR No Autorizadas",
             "Socios Ultimate", "Socios Yanga",
-            "Avanza Fit", "Cumpleaños", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff"
+            "Avanza Fit", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff"
         ] + ["Objetos Taquillas", "Gestion Bajas", "Gestion Suspensiones"]:
             tab = ttk.Frame(self.notebook)
             color = tab_colors.get(tab_name, "#cccccc")
@@ -719,10 +711,7 @@ class ResamaniaApp(tk.Tk):
         header.pack(fill="x", pady=4)
 
         botones = [
-            ("Accesos Dobles", "Accesos Dobles", "#d7bde2", "black"),
-            ("Accesos Descuadrados", "Accesos Descuadrados", "#b39ddb", "black"),
             ("Salidas PMR No Autorizadas", "Salidas PMR No Autorizadas", "#f8b6c1", "black"),
-            ("Morosos Accediendo", "Morosos Accediendo", "#ef9a9a", "black"),
         ]
         for label, fuente, bg, fg in botones:
             tk.Button(
@@ -1552,19 +1541,15 @@ class ResamaniaApp(tk.Tk):
             self.sync_impagos(incidencias, show_messages=show_messages)
 
             self.mostrar_en_tabla("Wizville", procesar_wizville(resumen, accesos))
-            self.mostrar_en_tabla("Accesos Dobles", procesar_accesos_dobles(resumen, accesos))
-            self.mostrar_en_tabla("Accesos Descuadrados", procesar_accesos_descuadrados(resumen, accesos))
             pmr_df = procesar_salidas_pmr_no_autorizadas(resumen, accesos)
             self.pmr_df_raw = pmr_df.copy()
             pmr_filtrado = self._pmr_filtrar_pendientes(pmr_df)
             self.mostrar_en_tabla("Salidas PMR No Autorizadas", pmr_filtrado)
-            self.mostrar_en_tabla("Morosos Accediendo", procesar_morosos_accediendo(incidencias, accesos), color="#F4CCCC")
             self.mostrar_en_tabla("Socios Ultimate", obtener_socios_ultimate())
             self.mostrar_en_tabla("Socios Yanga", obtener_socios_yanga())
             self.mostrar_en_tabla("Avanza Fit", obtener_avanza_fit())
-            self.mostrar_en_tabla("Cumpleaños", obtener_cumpleanos_hoy())
 
-            self._mostrar_grupo("Accesos", "Accesos Dobles")
+            self._mostrar_grupo("Accesos", "Salidas PMR No Autorizadas")
             self._mostrar_grupo("Servicios", "Socios Ultimate")
             self.update_blink_states()
             if show_messages:
