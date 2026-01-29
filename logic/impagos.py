@@ -288,16 +288,84 @@ class ImpagosDB:
         fecha_export = datetime.now().date().isoformat()
         prev_export = self.get_prev_export(fecha_export)
         rows = normalize_impagos_df(df, resumen_map=resumen_map)
-        for r in rows:
-            self.upsert_cliente(
-                r["numero_cliente"], r["nombre"], r["apellidos"], r["email"], r["movil"]
+        if not rows:
+            self.set_last_export(fecha_export)
+            return fecha_export, 0
+
+        with self._connect() as conn:
+            cur = conn.cursor()
+
+            # Upsert clientes en lote
+            cur.executemany(
+                self._sql(
+                    """
+                    INSERT INTO impagos_clientes (numero_cliente, nombre, apellidos, email, movil)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(numero_cliente) DO UPDATE SET
+                        nombre=excluded.nombre,
+                        apellidos=excluded.apellidos,
+                        email=excluded.email,
+                        movil=excluded.movil
+                    """
+                ),
+                [
+                    (
+                        r["numero_cliente"],
+                        r["nombre"],
+                        r["apellidos"],
+                        r["email"],
+                        r["movil"],
+                    )
+                    for r in rows
+                ],
             )
-            cliente_id = self.get_cliente_id(r["numero_cliente"])
-            if cliente_id:
-                self.add_evento(cliente_id, fecha_export, r["incidentes"])
+
+            # Resolver ids de clientes en una sola query
+            numeros = [r["numero_cliente"] for r in rows]
+            if self.use_postgres:
+                cur.execute(
+                    "SELECT numero_cliente, id FROM impagos_clientes WHERE numero_cliente = ANY(%s)",
+                    (numeros,),
+                )
+            else:
+                placeholders = ",".join(["?"] * len(numeros))
+                cur.execute(
+                    f"SELECT numero_cliente, id FROM impagos_clientes WHERE numero_cliente IN ({placeholders})",
+                    numeros,
+                )
+            ids = {row[0]: row[1] for row in cur.fetchall()}
+
+            # Upsert eventos en lote
+            eventos = []
+            for r in rows:
+                cliente_id = ids.get(r["numero_cliente"])
+                if not cliente_id:
+                    continue
+                eventos.append((cliente_id, fecha_export, r["incidentes"]))
+            if eventos:
+                cur.executemany(
+                    self._sql(
+                        """
+                        INSERT INTO impagos_eventos (cliente_id, fecha_export, incidentes)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(cliente_id, fecha_export) DO UPDATE SET
+                            incidentes=excluded.incidentes
+                        """
+                    ),
+                    eventos,
+                )
+
+            # Guardar meta en la misma transaccion
+            cur.execute(
+                self._sql(
+                    "INSERT INTO impagos_meta(key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+                ),
+                ("last_export", fecha_export),
+            )
+            conn.commit()
         if prev_export and prev_export != fecha_export:
             self._marcar_resueltos(prev_export, fecha_export)
-        self.set_last_export(fecha_export)
         return fecha_export, len(rows)
 
     def _marcar_resueltos(self, prev_export, current_export):

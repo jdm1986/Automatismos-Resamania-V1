@@ -53,6 +53,15 @@ def _write_config(data):
         json.dump(data, f)
 
 
+def _log_timing(label, elapsed):
+    try:
+        log_path = os.path.join(get_app_dir(), "timings.log")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now().isoformat()} | {label} | {elapsed:.3f}s\n")
+    except Exception:
+        pass
+
+
 def get_default_folder():
     data = _read_config()
     path = data.get("carpeta_datos", "")
@@ -1531,27 +1540,50 @@ class ResamaniaApp(tk.Tk):
                 return False
 
         try:
+            t0 = time.perf_counter()
             if self.folder_path:
+                t_sync_start = time.perf_counter()
                 self._sync_exports_to_db()
+                _log_timing("sync_exports_to_db", time.perf_counter() - t_sync_start)
+            t_resumen_start = time.perf_counter()
             resumen = load_data_file(self.folder_path, "RESUMEN CLIENTE")
+            _log_timing("load_csv_resumen", time.perf_counter() - t_resumen_start)
             self.resumen_df = resumen.copy()
+            t_accesos_start = time.perf_counter()
             accesos = load_data_file(self.folder_path, "ACCESOS")
+            _log_timing("load_csv_accesos", time.perf_counter() - t_accesos_start)
             self.raw_accesos = accesos.copy()
+            t_impagos_start = time.perf_counter()
             incidencias = load_data_file(self.folder_path, "IMPAGOS")
+            _log_timing("load_csv_impagos", time.perf_counter() - t_impagos_start)
+            t_sync_impagos = time.perf_counter()
             self.sync_impagos(incidencias, show_messages=show_messages)
+            _log_timing("sync_impagos", time.perf_counter() - t_sync_impagos)
 
+            t_calc_wizville = time.perf_counter()
             self.mostrar_en_tabla("Wizville", procesar_wizville(resumen, accesos))
+            _log_timing("calc_wizville_and_render", time.perf_counter() - t_calc_wizville)
+            t_calc_pmr = time.perf_counter()
             pmr_df = procesar_salidas_pmr_no_autorizadas(resumen, accesos)
             self.pmr_df_raw = pmr_df.copy()
             pmr_filtrado = self._pmr_filtrar_pendientes(pmr_df)
             self.mostrar_en_tabla("Salidas PMR No Autorizadas", pmr_filtrado)
+            _log_timing("calc_pmr_and_render", time.perf_counter() - t_calc_pmr)
+            t_calc_ultimate = time.perf_counter()
             self.mostrar_en_tabla("Socios Ultimate", obtener_socios_ultimate())
+            _log_timing("calc_socios_ultimate_and_render", time.perf_counter() - t_calc_ultimate)
+            t_calc_yanga = time.perf_counter()
             self.mostrar_en_tabla("Socios Yanga", obtener_socios_yanga())
+            _log_timing("calc_socios_yanga_and_render", time.perf_counter() - t_calc_yanga)
+            t_calc_avanza = time.perf_counter()
             self.mostrar_en_tabla("Avanza Fit", obtener_avanza_fit())
+            _log_timing("calc_avanza_fit_and_render", time.perf_counter() - t_calc_avanza)
 
             self._mostrar_grupo("Accesos", "Salidas PMR No Autorizadas")
             self._mostrar_grupo("Servicios", "Socios Ultimate")
             self.update_blink_states()
+            self._state_set("exports_last_loaded", self._get_exports_mtimes())
+            _log_timing("load_data_total", time.perf_counter() - t0)
             if show_messages:
                 messagebox.showinfo("Exito", "Datos cargados correctamente.")
             return True
@@ -1571,6 +1603,31 @@ class ResamaniaApp(tk.Tk):
             if not isinstance(meta, dict) or not str(meta.get("blob", "")).strip():
                 return False
         return True
+
+    def _get_exports_mtimes(self):
+        store = getattr(self, "state_store", None)
+        mtimes = {}
+        for base in ("RESUMEN CLIENTE", "ACCESOS", "FACTURAS Y VALES", "IMPAGOS"):
+            mtime = None
+            if self.folder_path:
+                path = self._find_export_file(base)
+                if path and os.path.exists(path):
+                    mtime = os.path.getmtime(path)
+            elif store and store.use_postgres:
+                meta = store.get(f"export:{base}", {})
+                if isinstance(meta, dict):
+                    mtime = meta.get("mtime")
+            mtimes[base] = mtime
+        return mtimes
+
+    def _exports_changed(self):
+        current = self._get_exports_mtimes()
+        if any(v is None for v in current.values()):
+            return True
+        last = self._state_get("exports_last_loaded", {}, None)
+        if not isinstance(last, dict):
+            return True
+        return current != last
 
     def _find_export_file(self, base_name):
         if not self.folder_path:
@@ -1703,7 +1760,9 @@ class ResamaniaApp(tk.Tk):
         self._bring_to_front()
         def run_refresh():
             if self.folder_path or self._db_exports_available():
-                return self.refresh_all_data(show_messages=False)
+                if self._exports_changed():
+                    return self.refresh_all_data(show_messages=False)
+                return self.refresh_persistent_data(show_messages=False)
             return self.refresh_persistent_data(show_messages=False)
 
         ok = self._with_loading("Recargando datos...", run_refresh)
