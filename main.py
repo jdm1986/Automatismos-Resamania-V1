@@ -18,11 +18,8 @@ import shutil
 import random
 import traceback
 from logic.wizville import procesar_wizville
-from logic.accesos import procesar_accesos_dobles, procesar_accesos_descuadrados, procesar_salidas_pmr_no_autorizadas, \
-    procesar_morosos_accediendo
-from logic.ultimate import obtener_socios_ultimate, obtener_socios_yanga
+from logic.accesos import procesar_salidas_pmr_no_autorizadas
 from logic.avanza_fit import obtener_avanza_fit
-from logic.cumpleanos import obtener_cumpleanos_hoy
 from utils.file_loader import load_data_file
 from logic.impagos import ImpagosDB
 from logic.incidencias import IncidenciasDB
@@ -473,7 +470,7 @@ class ResamaniaApp(tk.Tk):
             # "   - FACTURAS Y VALES.csv (intervalo de 4 semanas atrás)\n"
             "   - IMPAGOS.csv (Exportar el día actual - Clientes con Incidente de Pago)\n\n"
             "- Todos los archivos deben ser del mismo día de exportación.\n"
-            "- Pulsa el botón 'Actualizar datos' para subir los CSV a la base de datos.\n"
+            "- Pulsa el botón 'RECARGAR BD' para subir los CSV a la base de datos.\n"
             "- Los demás PCs no necesitan carpeta ni CSV; leen todo desde la base de datos.\n"
             "- Mapas: se admiten imágenes PNG y JPG/JPEG.\n"
             "- Reportes visuales: solo se admiten imágenes JPG/JPEG.\n"
@@ -845,6 +842,19 @@ class ResamaniaApp(tk.Tk):
                 return idx
         return None
 
+    def _pmr_is_reincidente(self, codigo):
+        item = self.pmr_advertencias.get(str(codigo).strip())
+        if not item:
+            return False
+        fecha = str(item.get("fecha", "")).strip()
+        if not fecha:
+            return True
+        try:
+            fecha_dt = datetime.strptime(fecha[:10], "%Y-%m-%d").date()
+            return fecha_dt < datetime.now().date()
+        except Exception:
+            return True
+
     def _pmr_filtrar_pendientes(self, df):
         if df is None or df.empty:
             return df
@@ -853,10 +863,24 @@ class ResamaniaApp(tk.Tk):
         if not col_codigo:
             return df
         codigos_aut = {str(x).strip() for x in self.pmr_autorizados}
-        codigos_adv = {str(x).strip() for x in self.pmr_advertencias.keys()}
-        codigos = codigos_aut | codigos_adv
+        codigos_adv_hoy = set()
+        hoy = datetime.now().date()
+        for codigo, item in self.pmr_advertencias.items():
+            fecha = str(item.get("fecha", "")).strip()
+            if not fecha:
+                continue
+            try:
+                fecha_dt = datetime.strptime(fecha[:10], "%Y-%m-%d").date()
+                if fecha_dt == hoy:
+                    codigos_adv_hoy.add(str(codigo).strip())
+            except Exception:
+                continue
+        codigos = codigos_aut | codigos_adv_hoy
         series = df[col_codigo].astype(str).str.strip()
-        return df[~series.isin(codigos)].copy()
+        filtrado = df[~series.isin(codigos)].copy()
+        codigos_filtrado = filtrado[col_codigo].astype(str).str.strip()
+        filtrado["Reincidente"] = codigos_filtrado.apply(lambda x: "SI" if self._pmr_is_reincidente(x) else "")
+        return filtrado
 
     def _pmr_refrescar_listado(self):
         if self.pmr_df_raw is None:
@@ -1874,15 +1898,22 @@ class ResamaniaApp(tk.Tk):
 
         tree.tag_configure("amarillo", background="#fff3cd")
         tree.tag_configure("rojo", background="#f8d7da")
+        tree.tag_configure("pmr_reincidente", background="#ffe0b2")
 
         for _, row in df.iterrows():
             valores = list(row)
             tag = ""
-            if "Días desde alta" in df.columns:
-                if row["Días desde alta"] == 16:
+            if "D?as desde alta" in df.columns:
+                if row["D?as desde alta"] == 16:
                     tag = "amarillo"
-                elif row["Días desde alta"] == 180:
+                elif row["D?as desde alta"] == 180:
                     tag = "rojo"
+            if "Reincidente" in df.columns:
+                try:
+                    if bool(row["Reincidente"]):
+                        tag = "pmr_reincidente"
+                except Exception:
+                    pass
             tree.insert("", "end", values=valores, tags=(tag,))
 
     def sort_column(self, tree, col, reverse):
