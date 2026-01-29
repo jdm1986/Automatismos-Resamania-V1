@@ -683,10 +683,6 @@
    'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
    'V1\\logic\\avanza_fit.py',
    'PYMODULE'),
-  ('logic.cumpleanos',
-   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
-   'V1\\logic\\cumpleanos.py',
-   'PYMODULE'),
   ('logic.impagos',
    'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA V1\\logic\\impagos.py',
    'PYMODULE'),
@@ -697,10 +693,6 @@
   ('logic.state_store',
    'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
    'V1\\logic\\state_store.py',
-   'PYMODULE'),
-  ('logic.ultimate',
-   'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '
-   'V1\\logic\\ultimate.py',
    'PYMODULE'),
   ('logic.wizville',
    'C:\\Users\\JESUS\\IdeaProjects\\AUTOMASMOS RESAMANIA '

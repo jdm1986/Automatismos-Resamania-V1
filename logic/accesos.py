@@ -34,6 +34,85 @@ def procesar_accesos_dobles(resumen_df, accesos_df):
 
     return resultados[["Nombre", "Apellidos", "Número de cliente", "Correo electrónico", "Móvil"]]
 
+def procesar_accesos_dobles_ayer(resumen_df, accesos_df):
+    """
+    Accesos dobles SOLO del día anterior usando Entrada_trípode_1/2.
+    """
+    resumen_df = resumen_df[resumen_df["Estado"].str.lower() == "cliente"]
+
+    col_cliente = _find_column(accesos_df, ["número", "cliente"]) or _find_column(accesos_df, ["numero", "cliente"])
+    col_fecha = _find_column(accesos_df, ["fecha", "acceso"])
+    col_punto = _find_column(accesos_df, ["punto", "acceso"])
+    if not all([col_cliente, col_fecha, col_punto]):
+        return pd.DataFrame(columns=["Nombre", "Apellidos", "Número de cliente", "Correo electrónico", "Móvil"])
+
+    accesos_df = accesos_df.copy()
+    accesos_df[col_fecha] = pd.to_datetime(accesos_df[col_fecha], errors="coerce", dayfirst=True)
+    ayer = datetime.today().date() - timedelta(days=1)
+    accesos_ayer = accesos_df[accesos_df[col_fecha].dt.date == ayer]
+
+    entradas = accesos_ayer[accesos_ayer[col_punto].isin(["Entrada_trípode_1", "Entrada_trípode_2"])]
+    entradas = entradas.dropna(subset=[col_fecha, col_cliente])
+    entradas[col_cliente] = entradas[col_cliente].astype(str)
+    stats = entradas.groupby(col_cliente)[col_fecha].agg(["min", "max", "size"])
+    stats["delta"] = stats["max"] - stats["min"]
+    dobles = stats[(stats["size"] >= 2) & (stats["delta"] >= timedelta(hours=2))].index.astype(str)
+
+    # Columnas preferidas desde RESUMEN
+    col_nombre = _find_column(resumen_df, ["nombre"])
+    col_apellidos = _find_column(resumen_df, ["apell"])
+    col_email = _find_column(resumen_df, ["correo"]) or _find_column(resumen_df, ["email"])
+    col_movil = _find_column(resumen_df, ["movil"]) or _find_column(resumen_df, ["tel"])
+    col_res_cliente = _find_column(resumen_df, ["número", "cliente"]) or _find_column(resumen_df, ["numero", "cliente"])
+
+    # Columnas fallback desde ACCESOS
+    col_acc_nombre = _find_column(accesos_df, ["nombre"])
+    col_acc_apellidos = _find_column(accesos_df, ["apell"])
+    col_acc_email = _find_column(accesos_df, ["correo"]) or _find_column(accesos_df, ["email"])
+    col_acc_movil = _find_column(accesos_df, ["movil"]) or _find_column(accesos_df, ["tel"])
+
+    if col_res_cliente:
+        resultado = resumen_df[resumen_df[col_res_cliente].astype(str).isin(dobles)].copy()
+    else:
+        resultado = pd.DataFrame(columns=[col_nombre, col_apellidos, col_res_cliente, col_email, col_movil])
+
+    # Fallback con ACCESOS para completar datos si faltan
+    if col_cliente in accesos_df.columns:
+        acc_yer = accesos_ayer.copy()
+        acc_yer[col_cliente] = acc_yer[col_cliente].astype(str).str.strip()
+        base = acc_yer[acc_yer[col_cliente].astype(str).isin(dobles)]
+        base = base.drop_duplicates(subset=[col_cliente])
+        base = base.rename(columns={
+            col_cliente: "Número de cliente",
+            col_acc_nombre: "Nombre",
+            col_acc_apellidos: "Apellidos",
+            col_acc_email: "Correo electrónico",
+            col_acc_movil: "Móvil",
+        })
+        base = base[["Número de cliente", "Nombre", "Apellidos", "Correo electrónico", "Móvil"]]
+        if col_res_cliente and not resultado.empty:
+            resultado = resultado.rename(columns={
+                col_res_cliente: "Número de cliente",
+                col_nombre: "Nombre",
+                col_apellidos: "Apellidos",
+                col_email: "Correo electrónico",
+                col_movil: "Móvil",
+            })
+            resultado = resultado[["Número de cliente", "Nombre", "Apellidos", "Correo electrónico", "Móvil"]]
+            resultado = resultado.merge(base, on="Número de cliente", how="left", suffixes=("", "_acc"))
+            for field in ["Nombre", "Apellidos", "Correo electrónico", "Móvil"]:
+                acc_field = f"{field}_acc"
+                if acc_field in resultado.columns:
+                    resultado[field] = resultado[field].fillna(resultado[acc_field])
+            resultado = resultado[["Nombre", "Apellidos", "Número de cliente", "Correo electrónico", "Móvil"]]
+        else:
+            resultado = base.rename(columns={"Número de cliente": "Número de cliente"})
+            resultado = resultado[["Nombre", "Apellidos", "Número de cliente", "Correo electrónico", "Móvil"]]
+
+    if resultado.empty:
+        return pd.DataFrame(columns=["Nombre", "Apellidos", "Número de cliente", "Correo electrónico", "Móvil"])
+    return resultado.fillna("")
+
 def procesar_accesos_descuadrados(resumen_df, accesos_df):
     resumen_df = resumen_df[resumen_df["Estado"].str.lower() == "cliente"]
 

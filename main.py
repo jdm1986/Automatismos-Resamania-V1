@@ -18,7 +18,7 @@ import shutil
 import random
 import traceback
 from logic.wizville import procesar_wizville
-from logic.accesos import procesar_salidas_pmr_no_autorizadas
+from logic.accesos import procesar_salidas_pmr_no_autorizadas, procesar_accesos_dobles_ayer
 from logic.avanza_fit import obtener_avanza_fit
 from utils.file_loader import load_data_file
 from logic.impagos import ImpagosDB
@@ -578,6 +578,7 @@ class ResamaniaApp(tk.Tk):
             "Wizville": "#6fa8dc",
             "Accesos": "#a4c2f4",
             "Salidas PMR No Autorizadas": "#c27ba0",
+            "Accesos Dobles Ayer": "#fce4ec",
             # "Servicios": "#b6d7a8",
             # "Socios Ultimate": "#76a5af",
             # "Socios Yanga": "#93c47d",
@@ -597,6 +598,7 @@ class ResamaniaApp(tk.Tk):
         self.tabs = {}
         ocultar_tabs = {
             "Salidas PMR No Autorizadas",
+            "Accesos Dobles Ayer",
             # "Socios Ultimate",
             # "Socios Yanga",
             "Staff",
@@ -604,6 +606,7 @@ class ResamaniaApp(tk.Tk):
         for tab_name in [
             "Wizville", "Accesos",
             "Salidas PMR No Autorizadas",
+            "Accesos Dobles Ayer",
             # "Socios Ultimate", "Socios Yanga",
             "Avanza Fit", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff"
         ] + ["Objetos Taquillas", "Gestion Bajas", "Gestion Suspensiones"]:
@@ -724,6 +727,7 @@ class ResamaniaApp(tk.Tk):
 
         botones = [
             ("Salidas PMR No Autorizadas", "Salidas PMR No Autorizadas", "#f8b6c1", "black"),
+            ("ACCESOS DOBLES DE AYER", "Accesos Dobles Ayer", "#fce4ec", "black"),
         ]
         for label, fuente, bg, fg in botones:
             tk.Button(
@@ -1588,6 +1592,10 @@ class ResamaniaApp(tk.Tk):
             pmr_filtrado = self._pmr_filtrar_pendientes(pmr_df)
             self.mostrar_en_tabla("Salidas PMR No Autorizadas", pmr_filtrado)
             _log_timing("calc_pmr_and_render", time.perf_counter() - t_calc_pmr)
+            t_calc_dobles_ayer = time.perf_counter()
+            dobles_ayer = procesar_accesos_dobles_ayer(resumen, accesos)
+            self.mostrar_en_tabla("Accesos Dobles Ayer", dobles_ayer)
+            _log_timing("calc_accesos_dobles_ayer_and_render", time.perf_counter() - t_calc_dobles_ayer)
             t_calc_avanza = time.perf_counter()
             self.mostrar_en_tabla("Avanza Fit", obtener_avanza_fit())
             _log_timing("calc_avanza_fit_and_render", time.perf_counter() - t_calc_avanza)
