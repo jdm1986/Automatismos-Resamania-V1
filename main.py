@@ -263,13 +263,14 @@ class ResamaniaApp(tk.Tk):
         self.pmr_df_raw = None
         self.accesos_grupo_actual = None
 
-        self.auto_refresh_interval_ms = 900000
+        self.auto_refresh_interval_ms = 1800000
         self.auto_refresh_job = None
         self.auto_refresh_last_error = None
         self.auto_refresh_last_error_shown = None
         self.local_cleanup_attempts = 0
         self.db_lock_path = None
         self._prompted_exports = False
+        self.auto_refresh_enabled = self._state_get("auto_refresh_enabled", False, None)
 
         self.create_widgets()
         if self._invalid_default_folder:
@@ -296,6 +297,8 @@ class ResamaniaApp(tk.Tk):
                 else:
                     self.after(200, self._prompt_exports_folder)
         self.after(500, self.update_blink_states)
+        if self.auto_refresh_enabled:
+            self._schedule_auto_refresh()
 
     def _role_label(self, area):
         labels = {
@@ -312,7 +315,7 @@ class ResamaniaApp(tk.Tk):
         csvs = [
             "RESUMEN CLIENTE.csv",
             "ACCESOS.csv",
-            "FACTURAS Y VALES.csv",
+            # "FACTURAS Y VALES.csv",
             "IMPAGOS.csv",
         ]
         if any(os.path.exists(os.path.join(path, name)) for name in csvs):
@@ -467,7 +470,7 @@ class ResamaniaApp(tk.Tk):
             "   Archivos requeridos en la carpeta del PC CLUB:\n"
             "   - RESUMEN CLIENTE.csv\n"
             "   - ACCESOS.csv (intervalo de 4 semanas atrás)\n"
-            "   - FACTURAS Y VALES.csv (intervalo de 4 semanas atrás)\n"
+            # "   - FACTURAS Y VALES.csv (intervalo de 4 semanas atrás)\n"
             "   - IMPAGOS.csv (Exportar el día actual - Clientes con Incidente de Pago)\n\n"
             "- Todos los archivos deben ser del mismo día de exportación.\n"
             "- Pulsa el botón 'Actualizar datos' para subir los CSV a la base de datos.\n"
@@ -511,6 +514,9 @@ class ResamaniaApp(tk.Tk):
             side=tk.LEFT, padx=10
         )
         tk.Button(botones_frame, text="RECARGAR BD", command=self.recargar_bd).pack(side=tk.LEFT, padx=10)
+        self.btn_auto_refresh = tk.Button(botones_frame, command=self.toggle_auto_refresh)
+        self.btn_auto_refresh.pack(side=tk.LEFT, padx=6)
+        self._update_auto_refresh_button()
         tk.Button(botones_frame, text="Exportar a Excel", command=self.exportar_excel).pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="INCIDENCIAS CLUB", command=self.ir_a_incidencias_club, bg="#424242", fg="white").pack(side=tk.LEFT, padx=10)
         tk.Button(botones_frame, text="GESTION CLIENTES", command=self.mostrar_gestion_clientes, bg="#c5e1a5", fg="black").pack(side=tk.LEFT, padx=10)
@@ -575,9 +581,9 @@ class ResamaniaApp(tk.Tk):
             "Wizville": "#6fa8dc",
             "Accesos": "#a4c2f4",
             "Salidas PMR No Autorizadas": "#c27ba0",
-            "Servicios": "#b6d7a8",
-            "Socios Ultimate": "#76a5af",
-            "Socios Yanga": "#93c47d",
+            # "Servicios": "#b6d7a8",
+            # "Socios Ultimate": "#76a5af",
+            # "Socios Yanga": "#93c47d",
             "Avanza Fit": "#ffd966",
             "Accesos Cliente": "#cfe2f3",
             "Prestamos": "#ffb74d",
@@ -594,14 +600,14 @@ class ResamaniaApp(tk.Tk):
         self.tabs = {}
         ocultar_tabs = {
             "Salidas PMR No Autorizadas",
-            "Socios Ultimate",
-            "Socios Yanga",
+            # "Socios Ultimate",
+            # "Socios Yanga",
             "Staff",
         }
         for tab_name in [
-            "Wizville", "Accesos", "Servicios",
+            "Wizville", "Accesos",
             "Salidas PMR No Autorizadas",
-            "Socios Ultimate", "Socios Yanga",
+            # "Socios Ultimate", "Socios Yanga",
             "Avanza Fit", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff"
         ] + ["Objetos Taquillas", "Gestion Bajas", "Gestion Suspensiones"]:
             tab = ttk.Frame(self.notebook)
@@ -613,8 +619,8 @@ class ResamaniaApp(tk.Tk):
             self.tabs[tab_name] = tab
             if tab_name == "Accesos":
                 self.create_accesos_tab(tab)
-            elif tab_name == "Servicios":
-                self.create_servicios_tab(tab)
+            # elif tab_name == "Servicios":
+            #     self.create_servicios_tab(tab)
             elif tab_name == "Prestamos":
                 self.create_prestamos_tab(tab)
             elif tab_name == "Incidencias Socios":
@@ -777,18 +783,7 @@ class ResamaniaApp(tk.Tk):
         header = tk.Frame(tab)
         header.pack(fill="x", pady=4)
 
-        botones = [
-            ("Socios Ultimate", "Socios Ultimate", "#80cbc4", "black"),
-            ("Socios Yanga", "Socios Yanga", "#a5d6a7", "black"),
-        ]
-        for label, fuente, bg, fg in botones:
-            tk.Button(
-                header,
-                text=label,
-                command=lambda f=fuente: self._mostrar_grupo("Servicios", f),
-                bg=bg,
-                fg=fg,
-            ).pack(side="left", padx=5)
+        botones = []
 
         content = tk.Frame(tab)
         content.pack(expand=True, fill="both")
@@ -1569,18 +1564,11 @@ class ResamaniaApp(tk.Tk):
             pmr_filtrado = self._pmr_filtrar_pendientes(pmr_df)
             self.mostrar_en_tabla("Salidas PMR No Autorizadas", pmr_filtrado)
             _log_timing("calc_pmr_and_render", time.perf_counter() - t_calc_pmr)
-            t_calc_ultimate = time.perf_counter()
-            self.mostrar_en_tabla("Socios Ultimate", obtener_socios_ultimate())
-            _log_timing("calc_socios_ultimate_and_render", time.perf_counter() - t_calc_ultimate)
-            t_calc_yanga = time.perf_counter()
-            self.mostrar_en_tabla("Socios Yanga", obtener_socios_yanga())
-            _log_timing("calc_socios_yanga_and_render", time.perf_counter() - t_calc_yanga)
             t_calc_avanza = time.perf_counter()
             self.mostrar_en_tabla("Avanza Fit", obtener_avanza_fit())
             _log_timing("calc_avanza_fit_and_render", time.perf_counter() - t_calc_avanza)
 
             self._mostrar_grupo("Accesos", "Salidas PMR No Autorizadas")
-            self._mostrar_grupo("Servicios", "Socios Ultimate")
             self.update_blink_states()
             self._state_set("exports_last_loaded", self._get_exports_mtimes())
             _log_timing("load_data_total", time.perf_counter() - t0)
@@ -1598,7 +1586,7 @@ class ResamaniaApp(tk.Tk):
         store = getattr(self, "state_store", None)
         if not store or not store.use_postgres:
             return False
-        for base in ("RESUMEN CLIENTE", "ACCESOS", "FACTURAS Y VALES", "IMPAGOS"):
+        for base in ("RESUMEN CLIENTE", "ACCESOS", "IMPAGOS"):
             meta = store.get(f"export:{base}", {})
             if not isinstance(meta, dict) or not str(meta.get("blob", "")).strip():
                 return False
@@ -1607,7 +1595,7 @@ class ResamaniaApp(tk.Tk):
     def _get_exports_mtimes(self):
         store = getattr(self, "state_store", None)
         mtimes = {}
-        for base in ("RESUMEN CLIENTE", "ACCESOS", "FACTURAS Y VALES", "IMPAGOS"):
+        for base in ("RESUMEN CLIENTE", "ACCESOS", "IMPAGOS"):
             mtime = None
             if self.folder_path:
                 path = self._find_export_file(base)
@@ -1643,7 +1631,7 @@ class ResamaniaApp(tk.Tk):
         store = getattr(self, "state_store", None)
         if not store or not store.use_postgres:
             return
-        for base in ("RESUMEN CLIENTE", "ACCESOS", "FACTURAS Y VALES", "IMPAGOS"):
+        for base in ("RESUMEN CLIENTE", "ACCESOS", "IMPAGOS"):
             path = self._find_export_file(base)
             if not path:
                 continue
@@ -1778,6 +1766,27 @@ class ResamaniaApp(tk.Tk):
         if hasattr(self, "lbl_last_refresh") and self.lbl_last_refresh:
             ts = datetime.now().strftime("%d/%m/%Y %H:%M")
             self.lbl_last_refresh.config(text=f"Ultima recarga: {ts}")
+
+    def _update_auto_refresh_button(self):
+        if hasattr(self, "btn_auto_refresh") and self.btn_auto_refresh:
+            if self.auto_refresh_enabled:
+                self.btn_auto_refresh.config(text="AUTO REFRESH: ON", bg="#66bb6a", fg="black")
+            else:
+                self.btn_auto_refresh.config(text="AUTO REFRESH: OFF", bg="#e0e0e0", fg="black")
+
+    def toggle_auto_refresh(self):
+        self.auto_refresh_enabled = not self.auto_refresh_enabled
+        self._state_set("auto_refresh_enabled", self.auto_refresh_enabled)
+        if self.auto_refresh_enabled:
+            self._schedule_auto_refresh()
+        else:
+            if self.auto_refresh_job is not None:
+                try:
+                    self.after_cancel(self.auto_refresh_job)
+                except Exception:
+                    pass
+                self.auto_refresh_job = None
+        self._update_auto_refresh_button()
 
     def _with_loading(self, message, func):
         win = tk.Toplevel(self)
