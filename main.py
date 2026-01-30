@@ -149,7 +149,7 @@ def get_security_code() -> str:
 class ResamaniaApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("AUTOMATISMOS RESAMANIA - JDM Developer")
+        self.title("AUTOMATISMOS RESAMANIA - JDM Developer - VERSIÓN 1.0 - SOFTWARE DE GESTIÓN ELABORADO POR JESÚS DÍAZ MARTÍN")
         self.state('zoomed')  # Pantalla completa al arrancar
         self.folder_path = get_default_folder()
         self._invalid_default_folder = False
@@ -555,6 +555,13 @@ class ResamaniaApp(tk.Tk):
         self.btn_objetos_taquillas.pack(side=tk.LEFT, padx=5)
         tk.Button(
             self.gestion_clientes_frame,
+            text="CALCULAR SOCIOS CLASSIC",
+            command=self.calcular_socios_classic,
+            bg="#ef5350",
+            fg="white",
+        ).pack(side=tk.LEFT, padx=5)
+        tk.Button(
+            self.gestion_clientes_frame,
             text="GESTION BAJAS",
             command=self.ir_a_gestion_bajas,
             bg="#b39ddb",
@@ -591,6 +598,7 @@ class ResamaniaApp(tk.Tk):
             "Objetos Taquillas": "#ffe0b2",
             "Gestion Bajas": "#d1c4e9",
             "Gestion Suspensiones": "#c8e6c9",
+            "Socios Classic": "#ef5350",
             "Staff": "#9e9e9e",
         }
         self.tab_icons = {}
@@ -608,7 +616,7 @@ class ResamaniaApp(tk.Tk):
             "Salidas PMR No Autorizadas",
             "Accesos Dobles Ayer",
             # "Socios Ultimate", "Socios Yanga",
-            "Avanza Fit", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff"
+            "Avanza Fit", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff", "Socios Classic"
         ] + ["Objetos Taquillas", "Gestion Bajas", "Gestion Suspensiones"]:
             tab = ttk.Frame(self.notebook)
             color = tab_colors.get(tab_name, "#cccccc")
@@ -1625,6 +1633,58 @@ class ResamaniaApp(tk.Tk):
                 return False
         return True
 
+    def _facturas_available(self):
+        store = getattr(self, "state_store", None)
+        if not store or not store.use_postgres:
+            return False
+        meta = store.get("export:FACTURAS Y VALES", {})
+        if not isinstance(meta, dict):
+            return False
+        return bool(str(meta.get("blob", "")).strip())
+
+    def _find_facturas_file(self):
+        if not self.folder_path:
+            return ""
+        for ext in (".csv", ".xlsx"):
+            candidate = os.path.join(self.folder_path, f"FACTURAS Y VALES{ext}")
+            if os.path.exists(candidate):
+                return candidate
+        return ""
+
+    def _sync_facturas_to_db(self):
+        store = getattr(self, "state_store", None)
+        if not store or not store.use_postgres:
+            return False
+        path = self._find_facturas_file()
+        if not path:
+            return False
+        try:
+            mtime = os.path.getmtime(path)
+            key = "export:FACTURAS Y VALES"
+            meta = store.get(key, {}) if hasattr(store, "get") else {}
+            if isinstance(meta, dict) and meta.get("mtime") == mtime:
+                return True
+            with open(path, "rb") as f:
+                data = f.read()
+            blob_id = store.put_blob(data, content_type="application/octet-stream")
+            old_blob = meta.get("blob") if isinstance(meta, dict) else ""
+            if old_blob:
+                try:
+                    store.delete_blob(old_blob)
+                except Exception:
+                    pass
+            store.set(
+                key,
+                {
+                    "blob": blob_id,
+                    "filename": os.path.basename(path),
+                    "mtime": mtime,
+                },
+            )
+            return True
+        except Exception:
+            return False
+
     def _get_exports_mtimes(self):
         store = getattr(self, "state_store", None)
         mtimes = {}
@@ -1970,6 +2030,18 @@ class ResamaniaApp(tk.Tk):
         table.columnconfigure(0, weight=1)
         tree = ttk.Treeview(table, columns=cols, show="headings")
         tree["displaycolumns"] = cols
+        col_widths = {
+            "codigo": 90,
+            "nombre": 120,
+            "apellidos": 140,
+            "email": 160,
+            "movil": 100,
+            "material": 140,
+            "fecha": 110,
+            "devuelto": 70,
+            "notificaciones": 90,
+            "prestado_por": 120,
+        }
         for c in cols:
             if c == "prestado_por":
                 heading = "Prestado por"
@@ -1978,7 +2050,8 @@ class ResamaniaApp(tk.Tk):
             else:
                 heading = c.capitalize()
             tree.heading(c, text=heading)
-            tree.column(c, anchor="center")
+            stretch = c in ("prestado_por", "email", "material")
+            tree.column(c, anchor="center", width=col_widths.get(c, 110), stretch=stretch)
         tree.grid(row=0, column=0, sticky="nsew")
         vscroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
         vscroll.grid(row=0, column=1, sticky="ns")
@@ -2473,6 +2546,136 @@ class ResamaniaApp(tk.Tk):
             webbrowser.open(url)
         except Exception as e:
             messagebox.showerror("WhatsApp", f"No se pudo abrir el enlace: {e}")
+
+    def calcular_socios_classic(self):
+        if not self._security_pin_ok():
+            return
+        if not self.folder_path and not self._facturas_available():
+            messagebox.showwarning(
+                "Socios Classic",
+                "Debe pulsar 'CALCULAR SOCIOS CLASSIC' en el PC CLUB primero para subir FACTURAS Y VALES.",
+                parent=self,
+            )
+            return
+
+        def run():
+            if self.folder_path:
+                ok = self._sync_facturas_to_db()
+                if not ok:
+                    raise ValueError(
+                        "No se encontro FACTURAS Y VALES.csv/xlsx en la carpeta seleccionada.\n"
+                        "Pulse el boton \"CALCULAR SOCIOS CLASSIC\" en el PC de recepcion previamente."
+                    )
+            df = load_data_file(self.folder_path or "", "FACTURAS Y VALES")
+            if df is None or df.empty:
+                raise ValueError("FACTURAS Y VALES.csv no tiene datos.")
+
+            def norm(s):
+                return self._norm(s)
+
+            col_cliente = None
+            col_producto = None
+            col_nombre = None
+            col_apellidos = None
+            col_email = None
+            col_movil = None
+            for c in df.columns:
+                n = norm(c)
+                if not col_cliente and "NUMERO DE CLIENTE" in n:
+                    col_cliente = c
+                if not col_producto and "NOMBRE DEL PRODUCTO" in n:
+                    col_producto = c
+                if not col_nombre and n == "NOMBRE":
+                    col_nombre = c
+                if not col_apellidos and "APELLIDOS" in n:
+                    col_apellidos = c
+                if not col_email and ("CORREO" in n or "EMAIL" in n):
+                    col_email = c
+                if not col_movil and "MOVIL" in n:
+                    col_movil = c
+            if not col_cliente or not col_producto:
+                raise ValueError("No se encontro Numero de cliente o Nombre del producto en FACTURAS Y VALES.")
+
+            df = df[[col_cliente, col_producto, col_nombre, col_apellidos, col_email, col_movil]].copy()
+            df[col_cliente] = df[col_cliente].astype(str).str.strip()
+            prod = df[col_producto].astype(str).str.upper()
+
+            mask_classic = prod.str.contains("ACCESO ILIMITADO CON PERMANENCIA POR SEMANA", na=False)
+            mask_yanga = prod.str.contains("YANGA", na=False)
+            mask_ultimate = prod.str.contains("ULTIMATE", na=False)
+
+            counts = df.groupby(col_cliente).agg(
+                classic_cnt=(col_producto, lambda x: (mask_classic[x.index]).sum()),
+                yanga_cnt=(col_producto, lambda x: (mask_yanga[x.index]).sum()),
+                ultimate_cnt=(col_producto, lambda x: (mask_ultimate[x.index]).sum()),
+            )
+
+            def tipo(row):
+                has_classic = row["classic_cnt"] >= 4
+                has_yanga = row["yanga_cnt"] >= 4
+                has_ultimate = row["ultimate_cnt"] >= 4
+                if has_classic and has_yanga and has_ultimate:
+                    return "FULL PACK"
+                if has_classic and has_yanga and not has_ultimate:
+                    return "ONLY YANGA"
+                if has_classic and has_ultimate and not has_yanga:
+                    return "ONLY ULTIMATE"
+                if has_classic and not has_yanga and not has_ultimate:
+                    return "ONLY CLASSIC"
+                return None
+
+            counts["tipo"] = counts.apply(tipo, axis=1)
+            counts = counts[counts["tipo"].notna()].copy()
+
+            # Enlazar datos personales (preferir RESUMEN si existe)
+            datos = df.drop_duplicates(subset=[col_cliente])[[col_cliente, col_nombre, col_apellidos, col_email, col_movil]]
+            datos = datos.rename(columns={
+                col_cliente: "Numero de cliente",
+                col_nombre: "Nombre",
+                col_apellidos: "Apellidos",
+                col_email: "Correo electronico",
+                col_movil: "Movil",
+            })
+
+            if self.resumen_df is not None:
+                cols_res = {self._norm(c): c for c in self.resumen_df.columns}
+                col_res_cliente = cols_res.get("NUMERO DE CLIENTE") or cols_res.get("NUMERO DE SOCIO")
+                if col_res_cliente:
+                    cols_map = {
+                        col_res_cliente: "Numero de cliente",
+                        cols_res.get("NOMBRE"): "Nombre",
+                        cols_res.get("APELLIDOS"): "Apellidos",
+                        cols_res.get("CORREO ELECTRONICO") or cols_res.get("EMAIL") or cols_res.get("CORREO"): "Correo electronico",
+                        cols_res.get("MOVIL"): "Movil",
+                    }
+                    cols_map = {k: v for k, v in cols_map.items() if k}
+                    res = self.resumen_df[list(cols_map.keys())].rename(columns=cols_map)
+                    datos = datos.drop(columns=[c for c in ["Nombre", "Apellidos", "Correo electronico", "Movil"] if c in datos.columns], errors="ignore")
+                    datos = datos.merge(res, on="Numero de cliente", how="left")
+
+            result = counts.reset_index().rename(columns={col_cliente: "Numero de cliente"})
+            result = result.merge(datos, on="Numero de cliente", how="left")
+            result = result[["Numero de cliente", "Nombre", "Apellidos", "Correo electronico", "Movil", "tipo"]]
+            result = result.rename(columns={"tipo": "Tipo de socio"})
+            self.mostrar_en_tabla("Socios Classic", result.fillna(""))
+
+            total = len(result)
+            resumen = result["Tipo de socio"].value_counts().to_dict()
+            lines = []
+            for k in ["ONLY CLASSIC", "ONLY YANGA", "ONLY ULTIMATE", "FULL PACK"]:
+                cnt = resumen.get(k, 0)
+                pct = (cnt / total * 100) if total else 0
+                lines.append(f"{k}: {cnt} ({pct:.1f}%)")
+            messagebox.showinfo(
+                "Resumen socios classic",
+                "Total socios: {}\n\n{}".format(total, "\n".join(lines)),
+                parent=self,
+            )
+
+        try:
+            self._with_loading("Calculando socios classic...", run)
+        except Exception as e:
+            messagebox.showwarning("Socios Classic", str(e), parent=self)
 
     def _prestamos_alert_texto(self, nombre, material):
         return (
