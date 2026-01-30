@@ -180,6 +180,9 @@ class ResamaniaApp(tk.Tk):
         self.incidencias_socios_filtro = "VISTO_PENDIENTE"
         self.incidencias_socios_encontrado = None
         self.incidencias_socios_filtro_codigo = None
+        self.paypymes_file = ""
+        self.paypymes = []
+        self.paypymes_encontrado = None
         self.incidencias_filtro_estado = "TODAS"
         self.objetos_taquillas_file = ""
         self.objetos_taquillas = []
@@ -574,6 +577,13 @@ class ResamaniaApp(tk.Tk):
             bg="#c8e6c9",
             fg="black",
         ).pack(side=tk.LEFT, padx=5)
+        tk.Button(
+            self.gestion_clientes_frame,
+            text="PAYPYMES",
+            command=self.ir_a_paypymes,
+            bg="#ef5350",
+            fg="white",
+        ).pack(side=tk.LEFT, padx=5)
 
         style = ttk.Style()
         style.configure("TNotebook.Tab", font=("Arial", 9, "bold"), padding=[24, 6], anchor="w")
@@ -599,6 +609,7 @@ class ResamaniaApp(tk.Tk):
             "Gestion Bajas": "#d1c4e9",
             "Gestion Suspensiones": "#c8e6c9",
             "Socios Classic": "#ef5350",
+            "PayPymes": "#ef5350",
             "Staff": "#9e9e9e",
         }
         self.tab_icons = {}
@@ -616,7 +627,7 @@ class ResamaniaApp(tk.Tk):
             "Salidas PMR No Autorizadas",
             "Accesos Dobles Ayer",
             # "Socios Ultimate", "Socios Yanga",
-            "Avanza Fit", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff", "Socios Classic"
+            "Avanza Fit", "Accesos Cliente", "Prestamos", "Impagos", "Incidencias Club", "Incidencias Socios", "Staff", "Socios Classic", "PayPymes"
         ] + ["Objetos Taquillas", "Gestion Bajas", "Gestion Suspensiones"]:
             tab = ttk.Frame(self.notebook)
             color = tab_colors.get(tab_name, "#cccccc")
@@ -633,6 +644,8 @@ class ResamaniaApp(tk.Tk):
                 self.create_prestamos_tab(tab)
             elif tab_name == "Incidencias Socios":
                 self.create_incidencias_socios_tab(tab)
+            elif tab_name == "PayPymes":
+                self.create_paypymes_tab(tab)
             elif tab_name == "Objetos Taquillas":
                 self.create_objetos_taquillas_tab(tab)
             elif tab_name == "Gestion Bajas":
@@ -1317,6 +1330,15 @@ class ResamaniaApp(tk.Tk):
         if tab:
             self.notebook.select(tab)
 
+    def ir_a_paypymes(self):
+        if not self._security_pin_ok():
+            return
+        if not self._require_manager_access("PayPymes"):
+            return
+        tab = self.tabs.get("PayPymes")
+        if tab:
+            self.notebook.select(tab)
+
     def select_folder(self):
         if not self._require_manager_access("Seleccionar carpeta"):
             return
@@ -1345,6 +1367,7 @@ class ResamaniaApp(tk.Tk):
         self.prestamos_file = os.path.join(self.data_dir, "prestamos.json")
         self.clientes_ext_file = os.path.join(self.data_dir, "clientes_ext.json")
         self.incidencias_socios_file = os.path.join(self.data_dir, "incidencias_socios.json")
+        self.paypymes_file = os.path.join(self.data_dir, "paypymes.json")
         self.objetos_taquillas_file = os.path.join(self.data_dir, "objetos_taquillas.json")
         self.bajas_file = os.path.join(self.data_dir, "bajas.json")
         self.suspensiones_file = os.path.join(self.data_dir, "suspensiones.json")
@@ -1801,6 +1824,7 @@ class ResamaniaApp(tk.Tk):
             self.cargar_clientes_ext()
             self.cargar_prestamos_json()
             self.cargar_incidencias_socios()
+            self.cargar_paypymes()
             self.cargar_objetos_taquillas()
             self.cargar_bajas()
             self.cargar_suspensiones()
@@ -3320,6 +3344,498 @@ class ResamaniaApp(tk.Tk):
         self.tree_incidencias_socios = tree
         tab.tree = tree
         self.refrescar_incidencias_socios_tree()
+
+    def cargar_paypymes(self):
+        try:
+            data = self._state_get("paypymes", [], self.paypymes_file)
+            self.paypymes = data if isinstance(data, list) else []
+            changed = False
+            for item in self.paypymes:
+                if "id" not in item:
+                    item["id"] = uuid.uuid4().hex
+                    changed = True
+                if "tipo_pago" not in item:
+                    item["tipo_pago"] = ""
+                    changed = True
+                if "notificacion" not in item:
+                    item["notificacion"] = "NO"
+                    changed = True
+            if changed:
+                self.guardar_paypymes()
+        except Exception:
+            self.paypymes = []
+        if hasattr(self, "tree_paypymes"):
+            self.refrescar_paypymes_tree()
+
+    def guardar_paypymes(self):
+        self._state_set("paypymes", self.paypymes, self.paypymes_file)
+
+    def _paypymes_parse_importe(self, raw):
+        if raw is None:
+            return None
+        s = str(raw).strip()
+        if not s:
+            return None
+        s = s.replace("€", "").replace(" ", "")
+        s = s.replace(",", ".")
+        try:
+            return float(s)
+        except Exception:
+            return None
+
+    def _paypymes_format_importe(self, value):
+        try:
+            v = float(value)
+        except Exception:
+            return str(value) if value is not None else ""
+        return f"{v:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def _paypymes_selector_pago(self, title, prompt, opciones):
+        self._bring_to_front()
+        win = tk.Toplevel(self)
+        win.title(title)
+        win.transient(self)
+        win.resizable(False, False)
+        tk.Label(win, text=prompt).pack(padx=10, pady=6)
+        var = tk.StringVar(value=opciones[0] if opciones else "")
+        combo = ttk.Combobox(win, values=opciones, textvariable=var, state="readonly", width=24)
+        combo.pack(padx=10, pady=6)
+        combo.focus_set()
+        res = {"value": None}
+
+        def aceptar():
+            res["value"] = var.get()
+            win.destroy()
+
+        btn = tk.Button(win, text="Aceptar", command=aceptar)
+        btn.pack(pady=6)
+        win.bind("<Return>", lambda _e: aceptar())
+        win.bind("<Escape>", lambda _e: win.destroy())
+        self._incidencias_center_window(win)
+        win.grab_set()
+        win.wait_window()
+        return res["value"]
+
+    def refrescar_paypymes_tree(self):
+        if not hasattr(self, "tree_paypymes"):
+            return
+        tree = self.tree_paypymes
+        tree.delete(*tree.get_children())
+        for item in sorted(
+            self.paypymes,
+            key=lambda i: self._socios_parse_dt(i.get("fecha")) or datetime.min,
+            reverse=True,
+        ):
+            notif = str(item.get("notificacion", "NO")).upper()
+            tag = "paypymes_no"
+            if notif == "SI":
+                tag = "paypymes_si"
+            reporte = "R" if item.get("reporte_path") else ""
+            values = [
+                item.get("codigo", ""),
+                item.get("nombre", ""),
+                item.get("apellidos", ""),
+                item.get("email", ""),
+                item.get("movil", ""),
+                self._paypymes_format_importe(item.get("importe")),
+                item.get("tipo_pago", ""),
+                item.get("fecha", ""),
+                notif,
+                reporte,
+                item.get("prestado_por", ""),
+            ]
+            tree.insert("", "end", iid=item.get("id"), values=values, tags=(tag,))
+        self._paypymes_update_stats()
+
+    def _paypymes_update_stats(self):
+        if not hasattr(self, "lbl_paypymes_stats"):
+            return
+        total = len(self.paypymes)
+        conteo = {"Efectivo": 0, "Tarjeta Bancaria": 0, "Pago Web": 0}
+        total_importe = 0.0
+        for item in self.paypymes:
+            tipo = item.get("tipo_pago", "")
+            if tipo in conteo:
+                conteo[tipo] += 1
+            try:
+                total_importe += float(item.get("importe", 0) or 0)
+            except Exception:
+                pass
+        def pct(n):
+            return f"{(n / total * 100):.0f}%" if total else "0%"
+        texto = (
+            f"Efectivo: {conteo['Efectivo']} ({pct(conteo['Efectivo'])}) | "
+            f"Tarjeta: {conteo['Tarjeta Bancaria']} ({pct(conteo['Tarjeta Bancaria'])}) | "
+            f"Web: {conteo['Pago Web']} ({pct(conteo['Pago Web'])}) | "
+            f"Total: {self._paypymes_format_importe(total_importe)} | "
+            f"Registros totales: {total}"
+        )
+        self.lbl_paypymes_stats.config(text=texto)
+
+    def buscar_cliente_paypymes(self):
+        codigo = self.paypymes_codigo.get().strip()
+        if not codigo:
+            messagebox.showwarning("Sin numero", "Introduce el numero de cliente.")
+            return
+        cliente = None
+        if self.resumen_df is not None:
+            colmap = {self._norm(c): c for c in self.resumen_df.columns}
+            col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
+            col_nom = colmap.get("NOMBRE")
+            col_ape = colmap.get("APELLIDOS")
+            col_mail = colmap.get("CORREO ELECTRONICO") or colmap.get("EMAIL") or colmap.get("CORREO")
+            col_movil = colmap.get("MOVIL") or colmap.get("TELEFONO MOVIL") or colmap.get("NUMERO DE TELEFONO")
+            if col_codigo:
+                fila = self.resumen_df[self.resumen_df[col_codigo].astype(str).str.strip() == codigo]
+                if not fila.empty:
+                    row = fila.iloc[0]
+                    cliente = {
+                        "codigo": codigo,
+                        "nombre": row.get(col_nom, ""),
+                        "apellidos": row.get(col_ape, ""),
+                        "email": row.get(col_mail, ""),
+                        "movil": self._normalizar_movil(row.get(col_movil, "")),
+                    }
+        if not cliente:
+            ext = [c for c in self.clientes_ext if c.get("codigo") == codigo]
+            if ext:
+                cliente = ext[0].copy()
+                cliente["movil"] = self._normalizar_movil(cliente.get("movil", ""))
+        if not cliente:
+            resp = messagebox.askyesno(
+                "Sin cliente",
+                f"No hay cliente {codigo}. Registrar manualmente?"
+            )
+            if not resp:
+                return
+            cliente = self._paypymes_registrar_cliente_manual(codigo)
+            if not cliente:
+                return
+            return
+        self.paypymes_encontrado = cliente
+        info = f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}"
+        self.lbl_paypymes_info.config(text=info)
+
+    def _paypymes_registrar_cliente_manual(self, codigo=None):
+        self._bring_to_front()
+        if not codigo:
+            codigo = self._pedir_campo("Numero de cliente", "Introduce el numero de cliente:")
+            if codigo is None or not codigo.strip():
+                return None
+            codigo = codigo.strip()
+
+        if self.resumen_df is not None:
+            colmap = {self._norm(c): c for c in self.resumen_df.columns}
+            col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
+            if col_codigo:
+                if any(str(val).strip() == codigo for val in self.resumen_df[col_codigo].fillna("")):
+                    messagebox.showwarning(
+                        "No permitido",
+                        "Este cliente ya existe en RESUMEN CLIENTE y no se puede agregar manualmente."
+                    )
+                    return None
+
+        nombre = self._pedir_campo("Nombre", "Introduce el nombre:", obligatorio=True, validar_nombre=True)
+        if nombre is None:
+            return None
+        apellidos = self._pedir_campo("Apellidos", "Introduce los apellidos:")
+        if apellidos is None:
+            return None
+        email = self._pedir_campo("Email", "Introduce el email:")
+        if email is None:
+            return None
+        movil = self._pedir_campo("Movil", "Introduce el movil (opcional):", obligatorio=False) or ""
+        movil = self._normalizar_movil(movil)
+
+        cliente = {
+            "codigo": codigo,
+            "nombre": nombre.strip(),
+            "apellidos": apellidos.strip(),
+            "email": email.strip(),
+            "movil": movil.strip(),
+        }
+        self.clientes_ext = [c for c in self.clientes_ext if c.get("codigo") != codigo] + [cliente]
+        self.guardar_clientes_ext()
+        self.paypymes_encontrado = cliente.copy()
+        info = f"{cliente.get('nombre','')} {cliente.get('apellidos','')} | {cliente.get('email','')} | {cliente.get('movil','')}"
+        self.lbl_paypymes_info.config(text=info)
+        messagebox.showinfo("Cliente agregado", f"Cliente {codigo} anadido como externo.")
+        return cliente
+
+    def agregar_cliente_paypymes(self):
+        self._paypymes_registrar_cliente_manual()
+
+    def _paypymes_selector_notificacion(self):
+        return self._paypymes_selector_pago("Notificacion", "Notificacion a PayPymes enviada?", ["SI", "NO"])
+
+    def _paypymes_enviar_email_aviso(self, cliente):
+        nombre = f"{cliente.get('nombre','')} {cliente.get('apellidos','')}".strip()
+        subject = f"Abono de 102€ o mas de {nombre}".strip()
+        body = "Hola, a continuacion dejamos captura de pantalla con el abono realizado para su gestion."
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            params = {
+                "subject": subject,
+                "body": body,
+            }
+            url = "mailto:operaciones@paypymes.es?" + urllib.parse.urlencode(params)
+            webbrowser.open(url)
+            return
+        try:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            mail = outlook.CreateItem(0)
+            mail.To = "operaciones@paypymes.es"
+            mail.Subject = subject
+            mail.Body = body
+            mail.Display()
+        except Exception:
+            params = {
+                "subject": subject,
+                "body": body,
+            }
+            url = "mailto:operaciones@paypymes.es?" + urllib.parse.urlencode(params)
+            webbrowser.open(url)
+
+    def nuevo_registro_paypymes(self):
+        if not getattr(self, "paypymes_encontrado", None):
+            messagebox.showwarning("Sin cliente", "Busca un cliente primero.")
+            return
+        codigo = self.paypymes_encontrado.get("codigo")
+        if codigo and any(str(i.get("codigo", "")).strip() == str(codigo).strip() for i in self.paypymes):
+            messagebox.showwarning("Aviso", "Este cliente ya ha tenido registros anteriores.")
+        staff = self._staff_select("PayPymes", "Quien registra el pago?")
+        if not staff:
+            return
+        prestado_por = self._staff_display_name(staff)
+        importe_raw = self._incidencias_prompt_text("PayPymes", "Cuanto es el importe?")
+        if importe_raw is None:
+            return
+        importe = self._paypymes_parse_importe(importe_raw)
+        if importe is None:
+            messagebox.showwarning("Importe", "Introduce un importe valido.")
+            return
+        tipo_pago = self._paypymes_selector_pago(
+            "Tipo de pago",
+            "Como ha pagado?",
+            ["Tarjeta Bancaria", "Pago Web", "Efectivo"],
+        )
+        if not tipo_pago:
+            return
+        reporte_path = None
+        if messagebox.askyesno("Reporte visual", "Desea agregar reporte visual?", parent=self):
+            reporte_path = self._incidencias_pedir_reporte_visual()
+        cliente = self.paypymes_encontrado
+        if messagebox.askyesno("Email", "Desea enviar email de aviso ahora?", parent=self):
+            self._paypymes_enviar_email_aviso(cliente)
+        notif_ok = "SI" if messagebox.askyesno("Confirmacion", "Ha enviado el aviso a PayPymes?", parent=self) else "NO"
+        item = {
+            "id": uuid.uuid4().hex,
+            "codigo": cliente.get("codigo", ""),
+            "nombre": cliente.get("nombre", ""),
+            "apellidos": cliente.get("apellidos", ""),
+            "email": cliente.get("email", ""),
+            "movil": cliente.get("movil", ""),
+            "importe": importe,
+            "tipo_pago": tipo_pago,
+            "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "notificacion": notif_ok,
+            "reporte_path": reporte_path,
+            "prestado_por": prestado_por,
+        }
+        self.paypymes.append(item)
+        self.guardar_paypymes()
+        self.refrescar_paypymes_tree()
+        messagebox.showinfo("Guardado", "Registro PayPymes guardado.")
+
+    def _paypymes_cambiar_notificacion(self, item_id):
+        if not item_id:
+            return
+        estado = self._paypymes_selector_notificacion()
+        if not estado:
+            return
+        for item in self.paypymes:
+            if item.get("id") == item_id:
+                item["notificacion"] = estado
+                break
+        self.guardar_paypymes()
+        self.refrescar_paypymes_tree()
+
+    def _paypymes_modificar_importe(self, item_id):
+        item = next((i for i in self.paypymes if i.get("id") == item_id), None)
+        if not item:
+            return
+        nuevo = self._incidencias_prompt_text("Importe", "Cuanto es el importe?", self._paypymes_format_importe(item.get("importe")))
+        if nuevo is None:
+            return
+        importe = self._paypymes_parse_importe(nuevo)
+        if importe is None:
+            messagebox.showwarning("Importe", "Introduce un importe valido.")
+            return
+        item["importe"] = importe
+        self.guardar_paypymes()
+        self.refrescar_paypymes_tree()
+
+    def _paypymes_modificar_tipo_pago(self, item_id):
+        item = next((i for i in self.paypymes if i.get("id") == item_id), None)
+        if not item:
+            return
+        nuevo = self._paypymes_selector_pago(
+            "Tipo de pago",
+            "Como ha pagado?",
+            ["Tarjeta Bancaria", "Pago Web", "Efectivo"],
+        )
+        if not nuevo:
+            return
+        item["tipo_pago"] = nuevo
+        self.guardar_paypymes()
+        self.refrescar_paypymes_tree()
+
+    def _paypymes_ver_reporte(self, item_id):
+        item = next((i for i in self.paypymes if i.get("id") == item_id), None)
+        if not item:
+            return
+        reporte = item.get("reporte_path")
+        if not reporte:
+            messagebox.showwarning("Reporte", "No hay reporte visual.")
+            return
+        resolved = self._incidencias_resolve_reporte_path(reporte)
+        if resolved:
+            stored = self._incidencias_store_reporte_path(resolved)
+            if stored and stored != reporte:
+                item["reporte_path"] = stored
+                self.guardar_paypymes()
+                self.refrescar_paypymes_tree()
+        self._incidencias_ver_reporte(resolved or reporte)
+
+    def _paypymes_modificar_reporte(self, item_id):
+        item = next((i for i in self.paypymes if i.get("id") == item_id), None)
+        if not item:
+            return
+        nuevo = self._incidencias_pedir_reporte_visual()
+        if not nuevo:
+            return
+        item["reporte_path"] = nuevo
+        self.guardar_paypymes()
+        self.refrescar_paypymes_tree()
+
+    def _paypymes_abrir_chat(self, item_id):
+        item = next((i for i in self.paypymes if i.get("id") == item_id), None)
+        if not item:
+            return
+        movil = self._normalizar_movil(item.get("movil", ""))
+        if not movil:
+            messagebox.showwarning("Chat", "El cliente no tiene movil registrado.")
+            return
+        webbrowser.open(f"https://wa.me/{movil}")
+
+    def _paypymes_eliminar_registro(self, item_id):
+        if not messagebox.askyesno("Eliminar", "Eliminar este registro?", parent=self):
+            return
+        self.paypymes = [i for i in self.paypymes if i.get("id") != item_id]
+        self.guardar_paypymes()
+        self.refrescar_paypymes_tree()
+
+    def create_paypymes_tab(self, tab):
+        frm = tk.Frame(tab)
+        frm.pack(fill="both", expand=True, padx=10, pady=10)
+
+        top = tk.Frame(frm)
+        top.pack(fill="x", pady=4)
+        tk.Label(top, text="Numero de cliente:").pack(side="left")
+        self.paypymes_codigo = tk.Entry(top, width=14)
+        self.paypymes_codigo.pack(side="left", padx=5)
+        tk.Button(top, text="Buscar", command=self.buscar_cliente_paypymes).pack(side="left", padx=5)
+        tk.Button(top, text="NUEVO REGISTRO", command=self.nuevo_registro_paypymes, bg="#ffcc80", fg="black").pack(
+            side="left", padx=5
+        )
+        self.lbl_paypymes_stats = tk.Label(top, text="", anchor="w")
+        self.lbl_paypymes_stats.pack(side="left", padx=10)
+        self.lbl_paypymes_info = tk.Label(top, text="", anchor="w")
+        self.lbl_paypymes_info.pack(side="left", padx=10)
+
+        cols = [
+            "codigo",
+            "nombre",
+            "apellidos",
+            "email",
+            "movil",
+            "importe",
+            "tipo_pago",
+            "fecha",
+            "notificacion",
+            "reporte",
+            "prestado_por",
+        ]
+        table = tk.Frame(frm)
+        table.pack(fill="both", expand=True)
+        table.rowconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
+        tree = ttk.Treeview(table, columns=cols, show="headings")
+        for c in cols:
+            heading = c.capitalize()
+            if c == "prestado_por":
+                heading = "Registrado por"
+            elif c == "tipo_pago":
+                heading = "Tipo de pago"
+            elif c == "notificacion":
+                heading = "Notific. enviada"
+            tree.heading(c, text=heading)
+            width = 120
+            if c in ("email",):
+                width = 200
+            elif c in ("importe",):
+                width = 110
+            elif c in ("prestado_por",):
+                width = 160
+            elif c in ("tipo_pago",):
+                width = 140
+            tree.column(c, anchor="center", width=width, stretch=True)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vscroll = ttk.Scrollbar(table, orient="vertical", command=tree.yview)
+        vscroll.grid(row=0, column=1, sticky="ns")
+        hscroll = ttk.Scrollbar(table, orient="horizontal", command=tree.xview)
+        hscroll.grid(row=1, column=0, sticky="ew")
+        tree.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+        tree.bind("<Control-c>", lambda e: self.copiar_celda(e, tree))
+        tree.tag_configure("paypymes_si", background="#d4edda")
+        tree.tag_configure("paypymes_no", background="#f8d7da")
+
+        def on_right_click(event):
+            row = tree.identify_row(event.y)
+            if not row:
+                return
+            tree.selection_set(row)
+            menu = tk.Menu(tree, tearoff=0)
+            menu.add_command(label="Modificar importe", command=lambda: self._paypymes_modificar_importe(row))
+            menu.add_command(label="Modificar tipo de pago", command=lambda: self._paypymes_modificar_tipo_pago(row))
+            menu.add_command(label="Notificacion enviada", command=lambda: self._paypymes_cambiar_notificacion(row))
+            menu.add_command(label="Ver reporte visual", command=lambda: self._paypymes_ver_reporte(row))
+            menu.add_command(label="Modificar reporte visual", command=lambda: self._paypymes_modificar_reporte(row))
+            menu.add_command(label="Eliminar registro", command=lambda: self._paypymes_eliminar_registro(row))
+            menu.add_separator()
+            menu.add_command(label="Abrir chat", command=lambda: self._paypymes_abrir_chat(row))
+            menu.add_command(label="Enviar email PayPymes", command=lambda: self._paypymes_enviar_email_aviso(self._paypymes_get_cliente(row)))
+            menu.add_command(label="Copiar", command=lambda: self.copiar_celda(event, tree))
+            menu.post(event.x_root, event.y_root)
+
+        def on_double_click(event):
+            item = tree.identify_row(event.y)
+            if not item:
+                return
+            self._paypymes_cambiar_notificacion(item)
+
+        tree.bind("<Button-3>", on_right_click)
+        tree.bind("<Double-1>", on_double_click)
+        self.tree_paypymes = tree
+        tab.tree = tree
+        self.refrescar_paypymes_tree()
+
+    def _paypymes_get_cliente(self, item_id):
+        item = next((i for i in self.paypymes if i.get("id") == item_id), None)
+        if item:
+            return item
+        return {}
 
     def cargar_objetos_taquillas(self):
         try:
@@ -5064,7 +5580,7 @@ class ResamaniaApp(tk.Tk):
         else:
             tab_name = self.notebook.tab(current, "text")
             if self.user_role == "STAFF":
-                blocked_tabs = {"Incidencias Socios", "Gestion Bajas", "Gestion Suspensiones"}
+                blocked_tabs = {"Incidencias Socios", "Gestion Bajas", "Gestion Suspensiones", "PayPymes"}
                 if tab_name in blocked_tabs:
                     self._require_manager_access(tab_name)
                     fallback = self._last_allowed_tab
