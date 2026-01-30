@@ -707,6 +707,7 @@ class ResamaniaApp(tk.Tk):
         self.prestamos_menu.add_separator()
         self.prestamos_menu.add_command(label="Editar cliente externo", command=self.editar_cliente_manual)
         self.prestamos_menu.add_command(label="Check devuelto", command=self.marcar_devuelto)
+        self.prestamos_menu.add_command(label="Marcar notificacion enviada", command=self._prestamos_marcar_notificado)
         self.prestamos_menu.add_command(label="Enviar aviso email", command=self.enviar_aviso_prestamo)
         self.prestamos_menu.add_command(label="Enviar aviso Whatsapp", command=self.abrir_whatsapp_prestamo)
         self.prestamos_menu.add_command(label="Vista individual/colectiva", command=self.toggle_prestamos_vista)
@@ -1791,6 +1792,7 @@ class ResamaniaApp(tk.Tk):
             messagebox.showerror("Recargar BD", err, parent=self)
             return False
         self._set_last_refresh()
+        self._prestamos_check_overdue()
         messagebox.showinfo("Recargar BD", "Datos recargados.", parent=self)
         return True
 
@@ -1876,6 +1878,7 @@ class ResamaniaApp(tk.Tk):
         if not self.folder_path:
             self._with_loading("Auto-recargando datos...", lambda: self.refresh_persistent_data(show_messages=False))
             self._set_last_refresh()
+            self._prestamos_check_overdue()
             self._schedule_auto_refresh()
             return
         ok = self._with_loading("Auto-recargando datos...", lambda: self.refresh_all_data(show_messages=False))
@@ -1888,6 +1891,7 @@ class ResamaniaApp(tk.Tk):
             self.auto_refresh_last_error = None
             self.auto_refresh_last_error_shown = None
             self._set_last_refresh()
+            self._prestamos_check_overdue()
         self._schedule_auto_refresh()
 
     def mostrar_en_tabla(self, tab_name, df, color=None):
@@ -1959,7 +1963,7 @@ class ResamaniaApp(tk.Tk):
         self.lbl_perdon = tk.Label(frm, text="", fg="red", font=("", 10, "bold"))
         self.lbl_perdon.pack(fill="x", padx=5, pady=2)
 
-        cols = ["codigo", "nombre", "apellidos", "email", "movil", "material", "fecha", "devuelto", "prestado_por"]
+        cols = ["codigo", "nombre", "apellidos", "email", "movil", "material", "fecha", "devuelto", "notificaciones", "prestado_por"]
         table = tk.Frame(frm)
         table.pack(fill="both", expand=True)
         table.rowconfigure(0, weight=1)
@@ -1967,7 +1971,12 @@ class ResamaniaApp(tk.Tk):
         tree = ttk.Treeview(table, columns=cols, show="headings")
         tree["displaycolumns"] = cols
         for c in cols:
-            heading = "Prestado por" if c == "prestado_por" else c.capitalize()
+            if c == "prestado_por":
+                heading = "Prestado por"
+            elif c == "notificaciones":
+                heading = "Notif. enviadas"
+            else:
+                heading = c.capitalize()
             tree.heading(c, text=heading)
             tree.column(c, anchor="center")
         tree.grid(row=0, column=0, sticky="nsew")
@@ -2302,6 +2311,8 @@ class ResamaniaApp(tk.Tk):
             "fecha": datetime.now().strftime("%d/%m/%Y %H:%M"),
             "devuelto": False,
             "liberado_pin": False,
+            "notificaciones": 0,
+            "notificado_ok": False,
         }
         self.prestamos.append(prestamo)
         self.guardar_prestamos_json()
@@ -2340,6 +2351,34 @@ class ResamaniaApp(tk.Tk):
             return
         seleccionado["devuelto"] = not seleccionado.get("devuelto", False)
         # Si se marcó manualmente, no tocar liberado_pin (permite conservar histórico)
+        self.guardar_prestamos_json()
+        self.refrescar_prestamos_tree()
+
+    def _prestamos_marcar_notificado(self):
+        sel = self.tree_prestamos.selection()
+        if not sel:
+            messagebox.showwarning("Sin seleccion", "Selecciona un prestamo.")
+            return
+        iid = sel[0]
+        seleccionado = None
+        for p in self.prestamos:
+            if p.get("id") == iid:
+                seleccionado = p
+                break
+        if not seleccionado:
+            vals = self.tree_prestamos.item(sel[0])["values"]
+            if len(vals) >= 7:
+                codigo_sel, material_sel, fecha_sel = vals[0], vals[5], vals[6]
+                for p in self.prestamos:
+                    if p.get("codigo") == codigo_sel and p.get("material") == material_sel and p.get("fecha") == fecha_sel:
+                        seleccionado = p
+                        break
+        if not seleccionado:
+            messagebox.showwarning("No encontrado", "No se pudo identificar el prestamo seleccionado.")
+            return
+        seleccionado["notificaciones"] = int(seleccionado.get("notificaciones", 0)) + 1
+        seleccionado["notificado_ok"] = True
+        seleccionado["fecha_ultima_notif"] = datetime.now().strftime("%d/%m/%Y %H:%M")
         self.guardar_prestamos_json()
         self.refrescar_prestamos_tree()
 
@@ -2435,6 +2474,89 @@ class ResamaniaApp(tk.Tk):
         except Exception as e:
             messagebox.showerror("WhatsApp", f"No se pudo abrir el enlace: {e}")
 
+    def _prestamos_alert_texto(self, nombre, material):
+        return (
+            "Advertencia 1 - Material de prestamo no devuelto\n\n"
+            f"Hola {nombre},\n\n"
+            f"No has devuelto el material prestado ({material}). "
+            "En caso de que vuelva a ocurrir, no podremos ofrecer este servicio. Gracias por colaborar."
+        )
+
+    def _prestamos_open_whatsapp(self, prestamo):
+        movil = self._normalizar_movil(str(prestamo.get("movil", "")))
+        if not movil:
+            return False
+        nombre = prestamo.get("nombre", "")
+        material = prestamo.get("material", "")
+        texto = self._prestamos_alert_texto(nombre, material)
+        try:
+            url = f"https://wa.me/{movil}?text={urllib.parse.quote(texto)}"
+            webbrowser.open(url)
+            return True
+        except Exception:
+            return False
+
+    def _prestamos_open_email(self, prestamo):
+        email = str(prestamo.get("email", "")).strip()
+        if not email:
+            return False
+        nombre = prestamo.get("nombre", "")
+        material = prestamo.get("material", "")
+        cuerpo = self._prestamos_alert_texto(nombre, material)
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            return False
+        try:
+            outlook = win32com.client.Dispatch("Outlook.Application")
+            mail = outlook.CreateItem(0)
+            mail.To = email
+            mail.Subject = "Aviso material prestamo"
+            mail.Body = cuerpo
+            mail.Display()
+            return True
+        except Exception:
+            return False
+
+    def _prestamos_check_overdue(self):
+        if not self.prestamos:
+            return
+        now = datetime.now()
+        for p in self.prestamos:
+            if p.get("devuelto"):
+                continue
+            if p.get("notificado_ok"):
+                continue
+            fecha = self._parse_fecha_prestamo(p.get("fecha"))
+            if not fecha:
+                continue
+            if (now - fecha).total_seconds() < 3 * 3600:
+                continue
+            codigo = p.get("codigo", "")
+            material = p.get("material", "")
+            if not messagebox.askyesno(
+                "Prestamo pendiente",
+                f"El cliente {codigo} lleva mas de 3h sin devolver: {material}.\n\n"
+                "Quieres abrir WhatsApp y email?",
+                parent=self,
+            ):
+                continue
+            opened_whatsapp = self._prestamos_open_whatsapp(p)
+            opened_email = self._prestamos_open_email(p)
+            if not (opened_whatsapp or opened_email):
+                messagebox.showwarning(
+                    "Prestamo pendiente",
+                    "No hay WhatsApp ni email disponibles para este cliente.",
+                    parent=self,
+                )
+                continue
+            if messagebox.askyesno("Confirmacion", "Has enviado las notificaciones?", parent=self):
+                p["notificaciones"] = int(p.get("notificaciones", 0)) + 1
+                p["notificado_ok"] = True
+                p["fecha_ultima_notif"] = now.strftime("%d/%m/%Y %H:%M")
+                self.guardar_prestamos_json()
+                self.refrescar_prestamos_tree()
+
     def cargar_prestamos_json(self):
         try:
             data = self._state_get("prestamos", [], self.prestamos_file)
@@ -2447,6 +2569,12 @@ class ResamaniaApp(tk.Tk):
                     changed = True
                 if "liberado_pin" not in p:
                     p["liberado_pin"] = False
+                    changed = True
+                if "notificaciones" not in p:
+                    p["notificaciones"] = 0
+                    changed = True
+                if "notificado_ok" not in p:
+                    p["notificado_ok"] = False
                     changed = True
             if changed:
                 self.guardar_prestamos_json()
@@ -4240,7 +4368,7 @@ class ResamaniaApp(tk.Tk):
         if not hasattr(self, "tree_prestamos"):
             return
         self.tree_prestamos.delete(*self.tree_prestamos.get_children())
-        self.tree_prestamos["displaycolumns"] = ["codigo", "nombre", "apellidos", "email", "movil", "material", "fecha", "devuelto", "prestado_por"]
+        self.tree_prestamos["displaycolumns"] = ["codigo", "nombre", "apellidos", "email", "movil", "material", "fecha", "devuelto", "notificaciones", "prestado_por"]
         # Ordenar de más reciente a más antiguo por fecha
         ordenados = sorted(
             self.prestamos,
@@ -4262,7 +4390,8 @@ class ResamaniaApp(tk.Tk):
             self.tree_prestamos.insert("", "end", values=[
                 p.get("codigo", ""), p.get("nombre", ""), p.get("apellidos", ""),
                 p.get("email", ""), p.get("movil", ""), p.get("material", ""),
-                p.get("fecha", ""), "SI" if p.get("devuelto") else "NO", p.get("prestado_por", "")
+                p.get("fecha", ""), "SI" if p.get("devuelto") else "NO",
+                p.get("notificaciones", 0), p.get("prestado_por", "")
             ], tags=(tag,), iid=iid)
 
     def toggle_prestamos_vista(self):
