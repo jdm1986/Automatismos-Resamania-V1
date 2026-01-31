@@ -2734,7 +2734,8 @@ class ResamaniaApp(tk.Tk):
         return (
             f"Hola {staff_name},\n\n"
             f"El cliente {nombre} {apellidos} (codigo {codigo}) tenia prestado: {material}.\n"
-            "Puedes confirmarme si ya lo devolvio? Si es asi, marca el prestamo como devuelto. Gracias."
+            "Puedes confirmarme si ya lo devolvio? Si es asi, marcamos el prestamo como devuelto, "
+            "o, en caso contrario, le notificamos que no lo devolvio. Gracias :D."
         )
 
     def _prestamos_find_staff(self, name):
@@ -5904,6 +5905,9 @@ class ResamaniaApp(tk.Tk):
         vista_menu.add_command(label="PENDIENTES Y TRAMITADAS", command=lambda: self._suspensiones_set_view("ACTIVAS"))
         vista_btn.configure(menu=vista_menu)
         vista_btn.pack(side="left", padx=5)
+        tk.Button(top, text="METRICAS", command=self._suspensiones_metricas, bg="#90caf9", fg="black").pack(side="left", padx=5)
+        self.lbl_suspensiones_totals = tk.Label(top, text="", fg="#d32f2f")
+        self.lbl_suspensiones_totals.pack(side="left", padx=10)
         tk.Label(top, text="Cliente:").pack(side="left", padx=(15, 4))
         self.suspensiones_buscar_entry = tk.Entry(top, width=14)
         self.suspensiones_buscar_entry.pack(side="left", padx=4)
@@ -6703,6 +6707,117 @@ class ResamaniaApp(tk.Tk):
                 item.get("solucion", ""),
             ]
             tree.insert("", "end", iid=item.get("id"), values=values, tags=(tag,) if tag else ())
+        self._suspensiones_update_totals()
+
+    def _suspensiones_update_totals(self):
+        if not hasattr(self, "lbl_suspensiones_totals"):
+            return
+        total = len(self.suspensiones)
+        activos = 0
+        gestionadas = 0
+        for item in self.suspensiones:
+            estado = str(item.get("estado", "")).strip().upper()
+            if estado in ("PENDIENTE", "TRAMITADA"):
+                activos += 1
+            if estado in ("TRAMITADA", "RECHAZADA", "CONCLUIDA"):
+                gestionadas += 1
+        self.lbl_suspensiones_totals.config(
+            text=f"TOTAL SUSPENSIONES ACTIVAS: {activos} | TOTAL SUSPENSIONES GESTIONADAS: {gestionadas}"
+        )
+
+    def _suspensiones_metricas(self):
+        total = len(self.suspensiones)
+        if total == 0:
+            messagebox.showinfo("Metricas", "No hay registros.")
+            return
+        counts_estado = {"PENDIENTE": 0, "TRAMITADA": 0, "RECHAZADA": 0, "CONCLUIDA": 0}
+        counts_motivo = {}
+        devolucion_si = 0
+        devolucion_no = 0
+        for item in self.suspensiones:
+            estado = str(item.get("estado", "PENDIENTE")).upper()
+            counts_estado[estado] = counts_estado.get(estado, 0) + 1
+            motivo = str(item.get("motivo", "")).strip().upper()
+            if motivo.startswith("OTRO"):
+                motivo = "OTRO"
+            if motivo:
+                counts_motivo[motivo] = counts_motivo.get(motivo, 0) + 1
+            if str(item.get("devolucion_recibo", "")).strip().upper() == "SI":
+                devolucion_si += 1
+            else:
+                devolucion_no += 1
+
+        win = tk.Toplevel(self)
+        win.title("Metricas suspensiones")
+        win.transient(self)
+        win.resizable(False, False)
+        tk.Label(win, text="METRICAS - GESTION SUSPENSIONES", font=("Arial", 10, "bold")).pack(padx=10, pady=(10, 6))
+
+        resumen = tk.Frame(win)
+        resumen.pack(padx=10, pady=6, fill="x")
+        tk.Label(resumen, text=f"TOTAL: {total}").grid(row=0, column=0, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"PENDIENTE: {counts_estado['PENDIENTE']}").grid(row=0, column=1, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"TRAMITADA: {counts_estado['TRAMITADA']}").grid(row=0, column=2, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"RECHAZADA: {counts_estado['RECHAZADA']}").grid(row=1, column=1, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"CONCLUIDA: {counts_estado['CONCLUIDA']}").grid(row=1, column=2, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"DEVOLUCION RECIBO SI: {devolucion_si}").grid(row=2, column=1, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"DEVOLUCION RECIBO NO: {devolucion_no}").grid(row=2, column=2, sticky="w", padx=6, pady=2)
+
+        charts = tk.Frame(win)
+        charts.pack(padx=10, pady=(8, 10), fill="x")
+        charts.columnconfigure(0, weight=1)
+        charts.columnconfigure(1, weight=1)
+
+        def draw_donut(canvas, data, colors):
+            canvas.delete("all")
+            if not data:
+                return
+            total_local = sum(data.values()) or 1
+            x0, y0, x1, y1 = 10, 10, 190, 190
+            start = 0
+            items = sorted(data.items(), key=lambda x: (-x[1], x[0]))
+            for idx, (_label, val) in enumerate(items):
+                extent = (val / total_local) * 360
+                color = colors[idx % len(colors)]
+                canvas.create_arc(x0, y0, x1, y1, start=start, extent=extent, fill=color, outline="white")
+                start += extent
+            canvas.create_oval(60, 60, 140, 140, fill="white", outline="white")
+
+        # MOTIVOS
+        left = tk.Frame(charts)
+        left.grid(row=0, column=0, sticky="n")
+        tk.Label(left, text="MOTIVOS", font=("Arial", 9, "bold")).pack(pady=(0, 4))
+        motivos_canvas = tk.Canvas(left, width=200, height=200, highlightthickness=0)
+        motivos_canvas.pack()
+        motivos_colors = ["#4f81bd", "#c0504d", "#9bbb59", "#8064a2", "#4bacc6", "#f79646", "#7f7f7f"]
+        draw_donut(motivos_canvas, counts_motivo, motivos_colors)
+        motivos_list = tk.Frame(left)
+        motivos_list.pack(pady=(6, 0), anchor="w")
+        motivos_items = sorted(counts_motivo.items(), key=lambda x: (-x[1], x[0]))
+        for idx, (motivo, cnt) in enumerate(motivos_items):
+            pct = int(round((cnt / total) * 100)) if total else 0
+            row = tk.Frame(motivos_list)
+            row.pack(anchor="w")
+            tk.Label(row, width=2, bg=motivos_colors[idx % len(motivos_colors)]).pack(side="left", padx=(0, 6))
+            tk.Label(row, text=f"{motivo}: {cnt} ({pct}%)").pack(side="left")
+
+        # ESTADOS
+        right = tk.Frame(charts)
+        right.grid(row=0, column=1, sticky="n")
+        tk.Label(right, text="ESTADOS", font=("Arial", 9, "bold")).pack(pady=(0, 4))
+        estados_canvas = tk.Canvas(right, width=200, height=200, highlightthickness=0)
+        estados_canvas.pack()
+        estados_colors = ["#9bbb59", "#c0504d", "#4f81bd", "#f79646", "#8064a2"]
+        draw_donut(estados_canvas, counts_estado, estados_colors)
+        estados_list = tk.Frame(right)
+        estados_list.pack(pady=(6, 0), anchor="w")
+        estados_items = sorted(counts_estado.items(), key=lambda x: (-x[1], x[0]))
+        for idx, (est, cnt) in enumerate(estados_items):
+            pct = int(round((cnt / total) * 100)) if total else 0
+            row = tk.Frame(estados_list)
+            row.pack(anchor="w")
+            tk.Label(row, width=2, bg=estados_colors[idx % len(estados_colors)]).pack(side="left", padx=(0, 6))
+            tk.Label(row, text=f"{est}: {cnt} ({pct}%)").pack(side="left")
 
     # -----------------------------
     # INCIDENCIAS CLUB
