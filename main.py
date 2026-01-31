@@ -731,6 +731,7 @@ class ResamaniaApp(tk.Tk):
         self.prestamos_menu.add_command(label="Marcar notificacion enviada", command=self._prestamos_marcar_notificado)
         self.prestamos_menu.add_command(label="Enviar aviso email", command=self.enviar_aviso_prestamo)
         self.prestamos_menu.add_command(label="Enviar aviso Whatsapp", command=self.abrir_whatsapp_prestamo)
+        self.prestamos_menu.add_command(label="Preguntar a staff", command=self._prestamos_preguntar_staff)
         self.prestamos_menu.add_command(label="Vista individual/colectiva", command=self.toggle_prestamos_vista)
         self.prestamos_menu.add_command(label="Eliminar registro", command=self.eliminar_prestamo)
 
@@ -2446,6 +2447,14 @@ class ResamaniaApp(tk.Tk):
         if not seleccionado:
             messagebox.showwarning("No encontrado", "No se pudo identificar el préstamo seleccionado.")
             return
+        if int(seleccionado.get("notificaciones", 0) or 0) > 0 or bool(seleccionado.get("notificado_ok")):
+            messagebox.showwarning(
+                "Prestamo bloqueado",
+                "Este prestamo ya tiene notificaciones enviadas y no se puede marcar como devuelto.\n"
+                "Si procede, elimina el registro.",
+                parent=self,
+            )
+            return
         seleccionado["devuelto"] = not seleccionado.get("devuelto", False)
         # Si se marcó manualmente, no tocar liberado_pin (permite conservar histórico)
         self.guardar_prestamos_json()
@@ -2719,6 +2728,89 @@ class ResamaniaApp(tk.Tk):
             f"No has devuelto el material prestado ({material}). "
             "En caso de que vuelva a ocurrir, no podremos ofrecer este servicio. Gracias por colaborar."
         )
+
+    def _prestamos_staff_msg(self, staff_name, nombre, apellidos, codigo, material):
+        return (
+            f"Hola {staff_name},\n\n"
+            f"El cliente {nombre} {apellidos} (codigo {codigo}) tenia prestado: {material}.\n"
+            "Puedes confirmarme si ya lo devolvio? Si es asi, marca el prestamo como devuelto. Gracias."
+        )
+
+    def _prestamos_find_staff(self, name):
+        target = str(name or "").strip().upper()
+        if not target:
+            return None
+        for s in self.staff:
+            if self._staff_display_name(s).strip().upper() == target:
+                return s
+        return None
+
+    def _prestamos_preguntar_staff(self):
+        tree = getattr(self, "tree_prestamos", None)
+        if tree is None:
+            return
+        sel = tree.selection()
+        if not sel:
+            messagebox.showwarning("Prestamos", "Selecciona un prestamo.")
+            return
+        values = tree.item(sel[0]).get("values", [])
+        if not values or len(values) < 10:
+            messagebox.showwarning("Prestamos", "No se pudo leer el prestamo seleccionado.")
+            return
+        codigo, nombre, apellidos, email, movil, material, _fecha, _devuelto, _notif, prestado_por = values
+        staff = self._prestamos_find_staff(prestado_por)
+        if not staff and self.staff:
+            if messagebox.askyesno(
+                "Staff",
+                f"No se encontro el staff '{prestado_por}'. Quieres seleccionarlo?",
+                parent=self,
+            ):
+                staff = self._staff_select("Staff", "Selecciona el staff:")
+        if not staff:
+            messagebox.showwarning("Staff", "No hay datos de staff para contactar.")
+            return
+
+        staff_name = self._staff_display_name(staff) or str(prestado_por).strip()
+        texto = self._prestamos_staff_msg(staff_name, nombre, apellidos, codigo, material)
+        staff_movil = self._normalizar_movil(staff.get("movil", ""))
+        staff_email = str(staff.get("email", "")).strip()
+
+        opened = False
+        if staff_movil:
+            try:
+                url = f"https://wa.me/{staff_movil}?text={urllib.parse.quote(texto)}"
+                webbrowser.open(url)
+                opened = True
+            except Exception:
+                pass
+        if not opened and staff_email:
+            try:
+                import win32com.client  # type: ignore
+            except ImportError:
+                params = {"subject": "Prestamo pendiente - confirmar devolucion", "body": texto}
+                url = "mailto:" + staff_email + "?" + urllib.parse.urlencode(params)
+                webbrowser.open(url)
+                opened = True
+            else:
+                try:
+                    outlook = win32com.client.Dispatch("Outlook.Application")
+                    mail = outlook.CreateItem(0)
+                    mail.To = staff_email
+                    mail.Subject = "Prestamo pendiente - confirmar devolucion"
+                    mail.Body = texto
+                    mail.Display()
+                    opened = True
+                except Exception:
+                    opened = False
+
+        if not opened:
+            self.clipboard_clear()
+            self.clipboard_append(texto)
+            messagebox.showwarning(
+                "Prestamos",
+                "No se pudo abrir WhatsApp ni email del staff. Mensaje copiado al portapapeles.",
+                parent=self,
+            )
 
     def _prestamos_open_whatsapp(self, prestamo):
         movil = self._normalizar_movil(str(prestamo.get("movil", "")))
