@@ -4595,6 +4595,7 @@ class ResamaniaApp(tk.Tk):
             b for b in self.bajas
             if str(b.get("devolucion_recibo", "")).strip().upper() == "SI"
             and str(b.get("impago_enviado", "")).strip().upper() != "SI"
+            and str(b.get("estado", "")).strip().upper() == "TRAMITADA"
         ]
         if not pendientes:
             messagebox.showinfo("PayPymes", "No hay clientes con impago pendiente para enviar.")
@@ -4602,17 +4603,28 @@ class ResamaniaApp(tk.Tk):
 
         rows = []
         for b in pendientes:
-            rows.append(
-                f"{b.get('codigo','')}\t{b.get('email','')}\t{b.get('apellidos','')}\t"
-                f"{b.get('nombre','')}\t{b.get('movil','')}\t{b.get('tipo_baja','')}"
-            )
+            rows.append({
+                "Cliente": b.get("codigo", ""),
+                "Email": b.get("email", ""),
+                "Apellidos": b.get("apellidos", ""),
+                "Nombre": b.get("nombre", ""),
+                "Movil": b.get("movil", ""),
+                "Tipo de baja": b.get("tipo_baja", ""),
+            })
         body = (
             "Hola,\n\n"
-            "Reporte de clientes dados de baja con impago pendiente:\n\n"
-            "CLIENTE\tEMAIL\tAPELLIDOS\tNOMBRE\tMOVIL\tTIPO BAJA\n"
-            + "\n".join(rows)
+            "Adjunto reporte de clientes dados de baja con impago pendiente (estado TRAMITADA).\n"
         )
         subject = "Clientes de baja con impago pendiente"
+        attachment_path = ""
+        try:
+            df = pd.DataFrame(rows)
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+            attachment_path = tmp.name
+            tmp.close()
+            df.to_excel(attachment_path, index=False)
+        except Exception:
+            attachment_path = ""
         try:
             import win32com.client  # type: ignore
         except ImportError:
@@ -4629,6 +4641,8 @@ class ResamaniaApp(tk.Tk):
                 mail.To = "operaciones@paypymes.es"
                 mail.Subject = subject
                 mail.Body = body
+                if attachment_path and os.path.exists(attachment_path):
+                    mail.Attachments.Add(attachment_path)
                 mail.Display()
             except Exception:
                 params = {
@@ -4637,6 +4651,11 @@ class ResamaniaApp(tk.Tk):
                 }
                 url = "mailto:operaciones@paypymes.es?" + urllib.parse.urlencode(params)
                 webbrowser.open(url)
+        if attachment_path and os.path.exists(attachment_path):
+            try:
+                os.remove(attachment_path)
+            except Exception:
+                pass
 
         if messagebox.askyesno("PayPymes", "Ha enviado el reporte a PayPymes?", parent=self):
             for b in pendientes:
