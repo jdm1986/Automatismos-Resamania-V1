@@ -2725,8 +2725,9 @@ class ResamaniaApp(tk.Tk):
         return (
             "Advertencia 1 - Material de prestamo no devuelto\n\n"
             f"Hola {nombre},\n\n"
-            f"No has devuelto el material prestado ({material}). "
-            "En caso de que vuelva a ocurrir, no podremos ofrecer este servicio. Gracias por colaborar."
+            f"El sistema nos indica que no has devuelto el material prestado ({material}). "
+            "En caso de que vuelva a ocurrir, no podremos ofrecer este servicio. Gracias por colaborar. "
+            "(Si se trata de un error y si has devuelto el material de prestamo, comunicanoslo). Un saludo."
         )
 
     def _prestamos_staff_msg(self, staff_name, nombre, apellidos, codigo, material):
