@@ -261,6 +261,9 @@ class ResamaniaApp(tk.Tk):
         self.pmr_advertencias_file = ""
         self.pmr_advertencias = {}
         self.pmr_df_raw = None
+        self.dobles_autorizados_file = ""
+        self.dobles_autorizados = set()
+        self.dobles_df_raw = None
         self.accesos_grupo_actual = None
 
         self.auto_refresh_interval_ms = 1800000
@@ -742,6 +745,8 @@ class ResamaniaApp(tk.Tk):
         accesos_tab = self.tabs.get("Accesos")
         if accesos_tab and tree is accesos_tab.tree and self.accesos_grupo_actual == "Salidas PMR Autorizados":
             menu.add_command(label="Quitar autorizacion", command=self.pmr_quitar_autorizado)
+        if accesos_tab and tree is accesos_tab.tree and self.accesos_grupo_actual == "Accesos Dobles Autorizados":
+            menu.add_command(label="Quitar autorizacion", command=self.dobles_quitar_autorizado)
         menu.post(event.x_root, event.y_root)
 
     def create_accesos_tab(self, tab):
@@ -799,6 +804,23 @@ class ResamaniaApp(tk.Tk):
             fg="black",
         ).pack(side="left", padx=5)
 
+        self.dobles_tools_frame = tk.Frame(tab)
+        self.dobles_tools_visible = False
+        tk.Button(
+            self.dobles_tools_frame,
+            text="Agregar autorizado",
+            command=self.dobles_agregar_autorizado,
+            bg="#b0bec5",
+            fg="black",
+        ).pack(side="left", padx=5)
+        tk.Button(
+            self.dobles_tools_frame,
+            text="Ver autorizados",
+            command=self.dobles_mostrar_autorizados,
+            bg="#ffe082",
+            fg="black",
+        ).pack(side="left", padx=5)
+
         content = tk.Frame(tab)
         content.pack(expand=True, fill="both")
         self.create_table(tab, parent=content)
@@ -824,10 +846,23 @@ class ResamaniaApp(tk.Tk):
                 if not self.pmr_tools_visible:
                     self.pmr_tools_frame.pack(fill="x", pady=2)
                     self.pmr_tools_visible = True
+                if self.dobles_tools_visible:
+                    self.dobles_tools_frame.pack_forget()
+                    self.dobles_tools_visible = False
+            elif fuente in ("Accesos Dobles Ayer", "Accesos Dobles Autorizados"):
+                if self.pmr_tools_visible:
+                    self.pmr_tools_frame.pack_forget()
+                    self.pmr_tools_visible = False
+                if not self.dobles_tools_visible:
+                    self.dobles_tools_frame.pack(fill="x", pady=2)
+                    self.dobles_tools_visible = True
             else:
                 if self.pmr_tools_visible:
                     self.pmr_tools_frame.pack_forget()
                     self.pmr_tools_visible = False
+                if self.dobles_tools_visible:
+                    self.dobles_tools_frame.pack_forget()
+                    self.dobles_tools_visible = False
         self.mostrar_en_tabla(tab_name, df)
 
     def cargar_pmr_autorizados(self):
@@ -840,6 +875,17 @@ class ResamaniaApp(tk.Tk):
 
     def guardar_pmr_autorizados(self):
         self._state_set("pmr_autorizados", sorted(self.pmr_autorizados), self.pmr_autorizados_file)
+
+    def cargar_dobles_autorizados(self):
+        try:
+            data = self._state_get("dobles_autorizados", [], self.dobles_autorizados_file)
+            if isinstance(data, list):
+                self.dobles_autorizados = {str(x).strip() for x in data if str(x).strip()}
+        except Exception:
+            self.dobles_autorizados = set()
+
+    def guardar_dobles_autorizados(self):
+        self._state_set("dobles_autorizados", sorted(self.dobles_autorizados), self.dobles_autorizados_file)
 
     def cargar_pmr_advertencias(self):
         try:
@@ -948,6 +994,25 @@ class ResamaniaApp(tk.Tk):
         self.dataframes["Salidas PMR No Autorizadas"] = pmr_filtrado
         if self.accesos_grupo_actual == "Salidas PMR No Autorizadas":
             self.mostrar_en_tabla("Accesos", pmr_filtrado)
+
+    def _dobles_filtrar_pendientes(self, df):
+        if df is None or df.empty:
+            return df
+        colmap = {self._pmr_norm(c): c for c in df.columns}
+        col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NRO DE CLIENTE")
+        if not col_codigo:
+            return df
+        codigos_aut = {str(x).strip() for x in self.dobles_autorizados}
+        filtrado = df[~df[col_codigo].astype(str).str.strip().isin(codigos_aut)].copy()
+        return filtrado
+
+    def _dobles_refrescar_listado(self):
+        if self.dobles_df_raw is None:
+            return
+        dobles_filtrado = self._dobles_filtrar_pendientes(self.dobles_df_raw)
+        self.dataframes["Accesos Dobles Ayer"] = dobles_filtrado
+        if self.accesos_grupo_actual == "Accesos Dobles Ayer":
+            self.mostrar_en_tabla("Accesos", dobles_filtrado)
 
     def pmr_agregar_autorizado(self):
         if self.accesos_grupo_actual != "Salidas PMR No Autorizadas":
@@ -1196,6 +1261,96 @@ class ResamaniaApp(tk.Tk):
             self.pmr_mostrar_autorizados()
             self._pmr_refrescar_listado()
 
+    def dobles_agregar_autorizado(self):
+        if self.accesos_grupo_actual != "Accesos Dobles Ayer":
+            messagebox.showwarning("Accesos", "Selecciona primero 'Accesos Dobles Ayer'.")
+            return
+        tree = self.tabs["Accesos"].tree
+        sel = tree.selection()
+        codigo = None
+        if sel:
+            columns = list(tree["columns"])
+            idx_codigo = self._pmr_get_col_index(columns, "Numero de cliente")
+            if idx_codigo is not None:
+                codigo = str(tree.item(sel[0])["values"][idx_codigo]).strip()
+        if not codigo:
+            codigo = simpledialog.askstring("Accesos", "Numero de cliente autorizado:", parent=self)
+            if codigo is None:
+                return
+            codigo = codigo.strip()
+        if not codigo:
+            messagebox.showwarning("Accesos", "No se ingreso numero de cliente.")
+            return
+        self.dobles_autorizados.add(codigo)
+        self.guardar_dobles_autorizados()
+        self._dobles_refrescar_listado()
+        messagebox.showinfo("Accesos", f"Cliente {codigo} marcado como autorizado.")
+
+    def dobles_mostrar_autorizados(self):
+        if not self.dobles_autorizados:
+            messagebox.showinfo("Accesos", "No hay clientes autorizados.")
+            return
+        data = []
+        for codigo in sorted(self.dobles_autorizados):
+            row = {
+                "Numero de cliente": codigo,
+                "Nombre": "",
+                "Apellidos": "",
+                "Correo electronico": "",
+                "Movil": "",
+            }
+            if self.dobles_df_raw is not None and not self.dobles_df_raw.empty:
+                colmap = {self._pmr_norm(c): c for c in self.dobles_df_raw.columns}
+                col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NRO DE CLIENTE")
+                if col_codigo:
+                    match = self.dobles_df_raw[self.dobles_df_raw[col_codigo].astype(str).str.strip() == codigo]
+                    if not match.empty:
+                        rec = match.iloc[0]
+                        row["Nombre"] = rec.get(colmap.get("NOMBRE", ""), "")
+                        row["Apellidos"] = rec.get(colmap.get("APELLIDOS", ""), "")
+                        row["Correo electronico"] = rec.get(colmap.get("CORREO ELECTRONICO", ""), "")
+                        row["Movil"] = rec.get(colmap.get("MOVIL", ""), "")
+            if self.resumen_df is not None:
+                colmap2 = {self._pmr_norm(c): c for c in self.resumen_df.columns}
+                col_codigo2 = colmap2.get("NUMERO DE CLIENTE") or colmap2.get("NRO DE CLIENTE")
+                if col_codigo2 and not row["Nombre"]:
+                    match2 = self.resumen_df[self.resumen_df[col_codigo2].astype(str).str.strip() == codigo]
+                    if not match2.empty:
+                        rec2 = match2.iloc[0]
+                        row["Nombre"] = rec2.get(colmap2.get("NOMBRE", ""), row["Nombre"])
+                        row["Apellidos"] = rec2.get(colmap2.get("APELLIDOS", ""), row["Apellidos"])
+                        row["Correo electronico"] = rec2.get(colmap2.get("CORREO ELECTRONICO", ""), row["Correo electronico"])
+                        row["Movil"] = rec2.get(colmap2.get("MOVIL", ""), row["Movil"])
+            data.append(row)
+        df = pd.DataFrame(data)
+        self.accesos_grupo_actual = "Accesos Dobles Autorizados"
+        if not self.dobles_tools_visible:
+            self.dobles_tools_frame.pack(fill="x", pady=2)
+            self.dobles_tools_visible = True
+        self.mostrar_en_tabla("Accesos", df)
+
+    def dobles_quitar_autorizado(self):
+        if self.accesos_grupo_actual != "Accesos Dobles Autorizados":
+            return
+        tree = self.tabs["Accesos"].tree
+        sel = tree.selection()
+        if not sel:
+            messagebox.showwarning("Accesos", "Selecciona un cliente autorizado.")
+            return
+        columns = list(tree["columns"])
+        idx_codigo = self._pmr_get_col_index(columns, "Numero de cliente")
+        if idx_codigo is None:
+            messagebox.showwarning("Accesos", "No se encontro la columna de numero de cliente.")
+            return
+        codigo = str(tree.item(sel[0])["values"][idx_codigo]).strip()
+        if not codigo:
+            return
+        if codigo in self.dobles_autorizados:
+            self.dobles_autorizados.remove(codigo)
+            self.guardar_dobles_autorizados()
+            self.dobles_mostrar_autorizados()
+            self._dobles_refrescar_listado()
+
     def _staff_get_value(self, item, *keys):
         for key in keys:
             if key in item and item.get(key) is not None:
@@ -1413,6 +1568,7 @@ class ResamaniaApp(tk.Tk):
         self.state_store = AppStateStore(db_config)
         self.pmr_autorizados_file = os.path.join(self.data_dir, "pmr_autorizados.json")
         self.pmr_advertencias_file = os.path.join(self.data_dir, "pmr_advertencias.json")
+        self.dobles_autorizados_file = os.path.join(self.data_dir, "dobles_autorizados.json")
         if hasattr(self, "incidencias_canvas") and self.incidencias_canvas:
             self.incidencias_cargar_listado_mapas()
 
@@ -1659,7 +1815,9 @@ class ResamaniaApp(tk.Tk):
             _log_timing("calc_pmr_and_render", time.perf_counter() - t_calc_pmr)
             t_calc_dobles_ayer = time.perf_counter()
             dobles_ayer = procesar_accesos_dobles_ayer(resumen, accesos)
-            self.mostrar_en_tabla("Accesos Dobles Ayer", dobles_ayer)
+            self.dobles_df_raw = dobles_ayer.copy()
+            dobles_filtrado = self._dobles_filtrar_pendientes(dobles_ayer)
+            self.mostrar_en_tabla("Accesos Dobles Ayer", dobles_filtrado)
             _log_timing("calc_accesos_dobles_ayer_and_render", time.perf_counter() - t_calc_dobles_ayer)
             t_calc_avanza = time.perf_counter()
             self.mostrar_en_tabla("Avanza Fit", obtener_avanza_fit())
@@ -1866,6 +2024,7 @@ class ResamaniaApp(tk.Tk):
             self.cargar_staff()
             self.cargar_pmr_autorizados()
             self.cargar_pmr_advertencias()
+            self.cargar_dobles_autorizados()
             if hasattr(self, "incidencias_canvas") and self.incidencias_canvas:
                 self.incidencias_cargar_listado_mapas()
                 if self.incidencias_panel_mode == "incidencias":

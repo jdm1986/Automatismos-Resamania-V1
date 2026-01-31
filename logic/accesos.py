@@ -145,61 +145,92 @@ def procesar_salidas_pmr_no_autorizadas(resumen_df, accesos_df):
     hoy = datetime.today().date()
     hace_una_semana = hoy - timedelta(days=7)
 
-    # Convertir y filtrar por fecha
-    accesos_df["Fecha corta de acceso"] = pd.to_datetime(
-        accesos_df["Fecha corta de acceso"], errors="coerce", dayfirst=True
-    )
-    accesos_rango = accesos_df[
-        (accesos_df["Fecha corta de acceso"].dt.date >= hace_una_semana) &
-        (accesos_df["Fecha corta de acceso"].dt.date <= hoy)
-        ]
+    col_cliente = _find_column(accesos_df, ["número", "cliente"]) or _find_column(accesos_df, ["numero", "cliente"])
+    col_fecha = _find_column(accesos_df, ["fecha", "acceso"])
+    col_punto = _find_column(accesos_df, ["punto", "acceso"])
 
-    # Filtrar solo salidas por PMR
-    salidas_pmr = accesos_rango[accesos_rango["Punto de acceso del Pasaje"] == "Pmr_salida_1"]
+    columnas_salida = [
+        "Nombre",
+        "Apellidos",
+        "Número de cliente",
+        "Correo electrónico",
+        "Móvil",
+        "Ultimo acceso PMR",
+    ]
 
+    if not all([col_cliente, col_fecha, col_punto]):
+        return pd.DataFrame(columns=columnas_salida)
+
+    df = accesos_df.copy()
+    df[col_fecha] = pd.to_datetime(df[col_fecha], errors="coerce", dayfirst=True)
+    df[col_punto] = df[col_punto].astype(str).str.strip()
+    accesos_rango = df[
+        (df[col_fecha].dt.date >= hace_una_semana)
+        & (df[col_fecha].dt.date <= hoy)
+    ]
+
+    salidas_pmr = accesos_rango[accesos_rango[col_punto] == "Pmr_salida_1"]
     if salidas_pmr.empty:
-        return resumen_df.head(0)[["Nombre", "Apellidos", "N??mero de cliente", "Correo electr??nico", "M??vil"]]
+        return pd.DataFrame(columns=columnas_salida)
 
-    # ??ltimo acceso PMR por cliente
+    salidas_pmr = salidas_pmr.dropna(subset=[col_cliente, col_fecha]).copy()
+    salidas_pmr[col_cliente] = salidas_pmr[col_cliente].astype(str)
+
     ultimo = (
-        salidas_pmr.groupby("N??mero de cliente")["Fecha corta de acceso"]
+        salidas_pmr.groupby(col_cliente)[col_fecha]
         .max()
         .reset_index()
     )
-    ultimo["Ultimo acceso PMR"] = ultimo["Fecha corta de acceso"].dt.strftime("%d/%m/%Y %H:%M")
+    ultimo["Ultimo acceso PMR"] = ultimo[col_fecha].dt.strftime("%d/%m/%Y %H:%M")
 
-    # Extraer informaci??n desde el resumen
-    resultado = resumen_df[resumen_df["N??mero de cliente"].isin(ultimo["N??mero de cliente"])].copy()
+    col_res_cliente = _find_column(resumen_df, ["número", "cliente"]) or _find_column(resumen_df, ["numero", "cliente"])
+    col_nombre = _find_column(resumen_df, ["nombre"])
+    col_apellidos = _find_column(resumen_df, ["apell"])
+    col_email = _find_column(resumen_df, ["correo"]) or _find_column(resumen_df, ["email"])
+    col_movil = _find_column(resumen_df, ["movil"]) or _find_column(resumen_df, ["tel"])
+
+    if col_res_cliente:
+        base = resumen_df.copy()
+        base[col_res_cliente] = base[col_res_cliente].astype(str)
+        resultado = base[base[col_res_cliente].isin(ultimo[col_cliente].astype(str))].copy()
+        resultado = resultado.rename(columns={
+            col_res_cliente: "Número de cliente",
+            col_nombre: "Nombre",
+            col_apellidos: "Apellidos",
+            col_email: "Correo electrónico",
+            col_movil: "Móvil",
+        })
+    else:
+        col_acc_nombre = _find_column(accesos_df, ["nombre"])
+        col_acc_apellidos = _find_column(accesos_df, ["apell"])
+        col_acc_email = _find_column(accesos_df, ["correo"]) or _find_column(accesos_df, ["email"])
+        col_acc_movil = _find_column(accesos_df, ["movil"]) or _find_column(accesos_df, ["tel"])
+
+        resultado = salidas_pmr.drop_duplicates(subset=[col_cliente]).copy()
+        resultado = resultado.rename(columns={
+            col_cliente: "Número de cliente",
+            col_acc_nombre: "Nombre",
+            col_acc_apellidos: "Apellidos",
+            col_acc_email: "Correo electrónico",
+            col_acc_movil: "Móvil",
+        })
+
+    for col in ["Nombre", "Apellidos", "Número de cliente", "Correo electrónico", "Móvil"]:
+        if col not in resultado.columns:
+            resultado[col] = ""
+
+    resultado = resultado[["Nombre", "Apellidos", "Número de cliente", "Correo electrónico", "Móvil"]]
+
+    ultimo_norm = ultimo.rename(columns={col_cliente: "Número de cliente"})
     resultado = resultado.merge(
-        ultimo[["N??mero de cliente", "Ultimo acceso PMR"]],
-        on="N??mero de cliente",
+        ultimo_norm[["Número de cliente", "Ultimo acceso PMR"]],
+        on="Número de cliente",
         how="left",
     )
 
-    # Columnas clave para mostrar
-    cols = ["Nombre", "Apellidos", "N??mero de cliente", "Correo electr??nico", "M??vil", "Ultimo acceso PMR"]
-    return resultado[cols]
+    resultado = resultado[columnas_salida]
+    return resultado.fillna("")
 
-    # Convertir y filtrar por fecha
-    accesos_df["Fecha corta de acceso"] = pd.to_datetime(
-        accesos_df["Fecha corta de acceso"], errors="coerce", dayfirst=True
-    )
-    accesos_rango = accesos_df[
-        (accesos_df["Fecha corta de acceso"].dt.date >= hace_una_semana) &
-        (accesos_df["Fecha corta de acceso"].dt.date <= hoy)
-        ]
-
-    # Filtrar solo salidas por PMR
-    salidas_pmr = accesos_rango[accesos_rango["Punto de acceso del Pasaje"] == "Pmr_salida_1"]
-
-    # Obtener clientes únicos que han usado esa salida
-    clientes_pmr = salidas_pmr["Número de cliente"].unique()
-
-    # Extraer información desde el resumen
-    resultado = resumen_df[resumen_df["Número de cliente"].isin(clientes_pmr)]
-
-    # Columnas clave para mostrar
-    return resultado[["Nombre", "Apellidos", "Número de cliente", "Correo electrónico", "Móvil"]]
 
 def procesar_morosos_activos(incidencias_df, accesos_df=None):
     # Convertimos nombres de columnas a mayúsculas por compatibilidad
