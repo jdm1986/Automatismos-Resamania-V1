@@ -157,6 +157,41 @@ def procesar_salidas_pmr_no_autorizadas(resumen_df, accesos_df):
     # Filtrar solo salidas por PMR
     salidas_pmr = accesos_rango[accesos_rango["Punto de acceso del Pasaje"] == "Pmr_salida_1"]
 
+    if salidas_pmr.empty:
+        return resumen_df.head(0)[["Nombre", "Apellidos", "N??mero de cliente", "Correo electr??nico", "M??vil"]]
+
+    # ??ltimo acceso PMR por cliente
+    ultimo = (
+        salidas_pmr.groupby("N??mero de cliente")["Fecha corta de acceso"]
+        .max()
+        .reset_index()
+    )
+    ultimo["Ultimo acceso PMR"] = ultimo["Fecha corta de acceso"].dt.strftime("%d/%m/%Y %H:%M")
+
+    # Extraer informaci??n desde el resumen
+    resultado = resumen_df[resumen_df["N??mero de cliente"].isin(ultimo["N??mero de cliente"])].copy()
+    resultado = resultado.merge(
+        ultimo[["N??mero de cliente", "Ultimo acceso PMR"]],
+        on="N??mero de cliente",
+        how="left",
+    )
+
+    # Columnas clave para mostrar
+    cols = ["Nombre", "Apellidos", "N??mero de cliente", "Correo electr??nico", "M??vil", "Ultimo acceso PMR"]
+    return resultado[cols]
+
+    # Convertir y filtrar por fecha
+    accesos_df["Fecha corta de acceso"] = pd.to_datetime(
+        accesos_df["Fecha corta de acceso"], errors="coerce", dayfirst=True
+    )
+    accesos_rango = accesos_df[
+        (accesos_df["Fecha corta de acceso"].dt.date >= hace_una_semana) &
+        (accesos_df["Fecha corta de acceso"].dt.date <= hoy)
+        ]
+
+    # Filtrar solo salidas por PMR
+    salidas_pmr = accesos_rango[accesos_rango["Punto de acceso del Pasaje"] == "Pmr_salida_1"]
+
     # Obtener clientes únicos que han usado esa salida
     clientes_pmr = salidas_pmr["Número de cliente"].unique()
 

@@ -887,26 +887,58 @@ class ResamaniaApp(tk.Tk):
             return df
         colmap = {self._pmr_norm(c): c for c in df.columns}
         col_codigo = colmap.get("NUMERO DE CLIENTE") or colmap.get("NRO DE CLIENTE")
+        col_ultimo = colmap.get("ULTIMO ACCESO PMR")
         if not col_codigo:
             return df
         codigos_aut = {str(x).strip() for x in self.pmr_autorizados}
-        codigos_adv_hoy = set()
-        hoy = datetime.now().date()
+        adv_dates = {}
         for codigo, item in self.pmr_advertencias.items():
             fecha = str(item.get("fecha", "")).strip()
             if not fecha:
                 continue
             try:
-                fecha_dt = datetime.strptime(fecha[:10], "%Y-%m-%d").date()
-                if fecha_dt == hoy:
-                    codigos_adv_hoy.add(str(codigo).strip())
+                adv_dates[str(codigo).strip()] = datetime.strptime(fecha, "%Y-%m-%d %H:%M")
             except Exception:
-                continue
-        codigos = codigos_aut | codigos_adv_hoy
+                try:
+                    adv_dates[str(codigo).strip()] = datetime.strptime(fecha[:16], "%Y-%m-%d %H:%M")
+                except Exception:
+                    continue
+
         series = df[col_codigo].astype(str).str.strip()
-        filtrado = df[~series.isin(codigos)].copy()
+        if col_ultimo and col_ultimo in df.columns:
+            accesos = pd.to_datetime(df[col_ultimo], errors="coerce", dayfirst=True)
+        else:
+            accesos = pd.Series([pd.NaT] * len(df), index=df.index)
+
+        keep_mask = []
+        for idx, codigo in series.items():
+            if codigo in codigos_aut:
+                keep_mask.append(False)
+                continue
+            adv_dt = adv_dates.get(codigo)
+            acc_dt = accesos.loc[idx] if idx in accesos.index else pd.NaT
+            if adv_dt and pd.notna(acc_dt):
+                keep_mask.append(acc_dt > adv_dt)
+            elif adv_dt and pd.isna(acc_dt):
+                keep_mask.append(False)
+            else:
+                keep_mask.append(True)
+
+        filtrado = df[keep_mask].copy()
         codigos_filtrado = filtrado[col_codigo].astype(str).str.strip()
-        filtrado["Reincidente"] = codigos_filtrado.apply(lambda x: "SI" if self._pmr_is_reincidente(x) else "")
+        if col_ultimo and col_ultimo in filtrado.columns:
+            accesos_f = pd.to_datetime(filtrado[col_ultimo], errors="coerce", dayfirst=True)
+        else:
+            accesos_f = pd.Series([pd.NaT] * len(filtrado), index=filtrado.index)
+        reinc = []
+        for idx, codigo in codigos_filtrado.items():
+            adv_dt = adv_dates.get(codigo)
+            acc_dt = accesos_f.loc[idx] if idx in accesos_f.index else pd.NaT
+            if adv_dt and pd.notna(acc_dt) and acc_dt > adv_dt:
+                reinc.append("SI")
+            else:
+                reinc.append("")
+        filtrado["Reincidente"] = reinc
         return filtrado
 
     def _pmr_refrescar_listado(self):
