@@ -2584,12 +2584,15 @@ class ResamaniaApp(tk.Tk):
 
         def run():
             if self.folder_path:
-                ok = self._sync_facturas_to_db()
-                if not ok:
-                    raise ValueError(
-                        "No se encontro FACTURAS Y VALES.csv/xlsx en la carpeta seleccionada.\n"
-                        "Pulse el boton \"CALCULAR SOCIOS CLASSIC\" en el PC de recepcion previamente."
-                    )
+                local_csv = os.path.join(self.folder_path, "FACTURAS Y VALES.csv")
+                local_xlsx = os.path.join(self.folder_path, "FACTURAS Y VALES.xlsx")
+                if os.path.exists(local_csv) or os.path.exists(local_xlsx):
+                    ok = self._sync_facturas_to_db()
+                    if not ok:
+                        raise ValueError(
+                            "No se encontro FACTURAS Y VALES.csv/xlsx en la carpeta seleccionada.\n"
+                            "Pulse el boton \"CALCULAR SOCIOS CLASSIC\" en el PC de recepcion previamente."
+                        )
             df = load_data_file(self.folder_path or "", "FACTURAS Y VALES")
             if df is None or df.empty:
                 raise ValueError("FACTURAS Y VALES.csv no tiene datos.")
@@ -4153,7 +4156,12 @@ class ResamaniaApp(tk.Tk):
                 item.get("fecha_eliminadas", ""),
                 item.get("staff_elimina", ""),
             ]
-            tree.insert("", "end", iid=item.get("id"), values=values, tags=(tag,) if tag else ())
+            tags = []
+            if str(item.get("devolucion_recibo", "")).strip().upper() == "SI":
+                tags.append("impago")
+            if tag:
+                tags.append(tag)
+            tree.insert("", "end", iid=item.get("id"), values=values, tags=tuple(tags))
 
     def create_objetos_taquillas_tab(self, tab):
         frm = tk.Frame(tab)
@@ -4249,6 +4257,20 @@ class ResamaniaApp(tk.Tk):
         tk.Button(top, text="NUEVO REGISTRO", command=self._bajas_nuevo_registro, bg="#ffcc80", fg="black").pack(
             side="left", padx=5
         )
+        tk.Button(
+            top,
+            text="ACTUALIZAR CLIENTES CON IMPAGO",
+            command=self._bajas_actualizar_impagos_manual,
+            bg="#ffe082",
+            fg="black",
+        ).pack(side="left", padx=5)
+        tk.Button(
+            top,
+            text="ENVIAR IMPAGOS A PAYPYMES",
+            command=self._bajas_enviar_impagos_paypymes,
+            bg="#ef5350",
+            fg="white",
+        ).pack(side="left", padx=5)
         vista_btn = tk.Menubutton(top, text="VISTA", bg="#bdbdbd", fg="black")
         vista_menu = tk.Menu(vista_btn, tearoff=0)
         vista_menu.add_command(label="TODOS LOS REGISTROS", command=lambda: self._bajas_set_view("TODOS"))
@@ -4256,6 +4278,7 @@ class ResamaniaApp(tk.Tk):
         vista_menu.add_command(label="TRAMITADAS", command=lambda: self._bajas_set_view("TRAMITADA"))
         vista_menu.add_command(label="RECHAZADAS", command=lambda: self._bajas_set_view("RECHAZADA"))
         vista_menu.add_command(label="RECUPERADAS", command=lambda: self._bajas_set_view("RECUPERADA"))
+        vista_menu.add_command(label="CLIENTES CON IMPAGO", command=lambda: self._bajas_set_view("IMPAGO"))
         vista_btn.configure(menu=vista_menu)
         vista_btn.pack(side="left", padx=5)
         tk.Button(top, text="METRICAS", command=self._bajas_metricas, bg="#90caf9", fg="black").pack(side="left", padx=5)
@@ -4281,6 +4304,7 @@ class ResamaniaApp(tk.Tk):
             "fecha_rechazo",
             "fecha_recuperacion",
             "devolucion_recibo",
+            "impago_enviado",
             "incidencia",
             "solucion",
         ]
@@ -4305,6 +4329,7 @@ class ResamaniaApp(tk.Tk):
             "fecha_rechazo": "FECHA RECHAZO",
             "fecha_recuperacion": "FECHA RECUPERACION",
             "devolucion_recibo": "DEVOLUCION RECIBO",
+            "impago_enviado": "ENVIO PAYPYMES",
             "incidencia": "INCIDENCIA",
             "solucion": "SOLUCION",
         }
@@ -4317,7 +4342,7 @@ class ResamaniaApp(tk.Tk):
                 width = 180
             elif c in ("fecha_registro", "fecha_tramitacion", "fecha_rechazo", "fecha_recuperacion"):
                 width = 140
-            elif c in ("tipo_baja", "devolucion_recibo"):
+            elif c in ("tipo_baja", "devolucion_recibo", "impago_enviado"):
                 width = 140
             elif c in ("reporte",):
                 width = 80
@@ -4334,6 +4359,7 @@ class ResamaniaApp(tk.Tk):
         tree.tag_configure("tramitada", background="#d4edda")
         tree.tag_configure("recuperada", background="#d9edf7")
         tree.tag_configure("rechazada", background="#f8d7da")
+        tree.tag_configure("impago", background="#fff59d")
         tree.after(200, lambda: self._bajas_autofit_columns(tree, cols, base_widths))
 
         def on_right_click(event):
@@ -4479,6 +4505,9 @@ class ResamaniaApp(tk.Tk):
                 if "devolucion_recibo" not in item:
                     item["devolucion_recibo"] = ""
                     changed = True
+                if "impago_enviado" not in item:
+                    item["impago_enviado"] = "NO"
+                    changed = True
                 if "reporte_path" not in item:
                     item["reporte_path"] = ""
                     changed = True
@@ -4513,19 +4542,32 @@ class ResamaniaApp(tk.Tk):
 
     def _bajas_get_impagos_set(self):
         fecha = self.impagos_last_export or self.impagos_db.get_last_export()
-        if not fecha:
-            return set()
+        if fecha:
+            try:
+                with self.impagos_db._connect() as conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT DISTINCT c.numero_cliente "
+                        "FROM impagos_clientes c "
+                        "JOIN impagos_eventos e ON e.cliente_id = c.id "
+                        "WHERE e.fecha_export = ?",
+                        (fecha,),
+                    )
+                    rows = {str(r[0]).strip() for r in cur.fetchall() if r and r[0]}
+                if rows:
+                    return rows
+            except Exception:
+                pass
+        # Fallback: leer IMPAGOS.csv exportado y tomar columna "Numero de cliente"
         try:
-            with self.impagos_db._connect() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT DISTINCT c.numero_cliente "
-                    "FROM impagos_clientes c "
-                    "JOIN impagos_eventos e ON e.cliente_id = c.id "
-                    "WHERE e.fecha_export = ?",
-                    (fecha,),
-                )
-                return {str(r[0]).strip() for r in cur.fetchall() if r and r[0]}
+            df = load_data_file(self.folder_path or "", "IMPAGOS")
+            if df is None or df.empty:
+                return set()
+            colmap = {self._norm(c): c for c in df.columns}
+            col_cliente = colmap.get("NUMERO DE CLIENTE") or colmap.get("NUMERO DE SOCIO")
+            if not col_cliente:
+                return set()
+            return {str(v).strip() for v in df[col_cliente].fillna("") if str(v).strip()}
         except Exception:
             return set()
 
@@ -4541,6 +4583,66 @@ class ResamaniaApp(tk.Tk):
                 changed = True
         if changed:
             self.guardar_bajas()
+
+    def _bajas_actualizar_impagos_manual(self):
+        self._bajas_actualizar_devolucion()
+        if hasattr(self, "tree_bajas"):
+            self.refrescar_bajas_tree()
+        messagebox.showinfo("Bajas", "Clientes con impago actualizados.", parent=self)
+
+    def _bajas_enviar_impagos_paypymes(self):
+        pendientes = [
+            b for b in self.bajas
+            if str(b.get("devolucion_recibo", "")).strip().upper() == "SI"
+            and str(b.get("impago_enviado", "")).strip().upper() != "SI"
+        ]
+        if not pendientes:
+            messagebox.showinfo("PayPymes", "No hay clientes con impago pendiente para enviar.")
+            return
+
+        rows = []
+        for b in pendientes:
+            rows.append(
+                f"{b.get('codigo','')}\t{b.get('email','')}\t{b.get('apellidos','')}\t"
+                f"{b.get('nombre','')}\t{b.get('movil','')}\t{b.get('tipo_baja','')}"
+            )
+        body = (
+            "Hola,\n\n"
+            "Reporte de clientes dados de baja con impago pendiente:\n\n"
+            "CLIENTE\tEMAIL\tAPELLIDOS\tNOMBRE\tMOVIL\tTIPO BAJA\n"
+            + "\n".join(rows)
+        )
+        subject = "Clientes de baja con impago pendiente"
+        try:
+            import win32com.client  # type: ignore
+        except ImportError:
+            params = {
+                "subject": subject,
+                "body": body,
+            }
+            url = "mailto:operaciones@paypymes.es?" + urllib.parse.urlencode(params)
+            webbrowser.open(url)
+        else:
+            try:
+                outlook = win32com.client.Dispatch("Outlook.Application")
+                mail = outlook.CreateItem(0)
+                mail.To = "operaciones@paypymes.es"
+                mail.Subject = subject
+                mail.Body = body
+                mail.Display()
+            except Exception:
+                params = {
+                    "subject": subject,
+                    "body": body,
+                }
+                url = "mailto:operaciones@paypymes.es?" + urllib.parse.urlencode(params)
+                webbrowser.open(url)
+
+        if messagebox.askyesno("PayPymes", "Ha enviado el reporte a PayPymes?", parent=self):
+            for b in pendientes:
+                b["impago_enviado"] = "SI"
+            self.guardar_bajas()
+            self.refrescar_bajas_tree()
 
     def _bajas_buscar_cliente_info(self, codigo):
         codigo = str(codigo or "").strip()
@@ -4663,6 +4765,7 @@ class ResamaniaApp(tk.Tk):
             "fecha_rechazo": "",
             "fecha_recuperacion": "",
             "devolucion_recibo": "SI" if codigo in self.bajas_impagos_set else "NO",
+            "impago_enviado": "NO",
             "incidencia": incidencia,
             "solucion": "",
             "reporte_path": reporte_path,
@@ -4818,7 +4921,10 @@ class ResamaniaApp(tk.Tk):
             if cliente_filter and codigo.upper() != cliente_filter:
                 continue
             estado = str(item.get("estado", "PENDIENTE")).upper()
-            if view != "TODOS" and estado != view:
+            if view == "IMPAGO":
+                if str(item.get("devolucion_recibo", "")).strip().upper() != "SI":
+                    continue
+            elif view != "TODOS" and estado != view:
                 continue
             tag = ""
             if estado == "PENDIENTE":
@@ -4845,6 +4951,7 @@ class ResamaniaApp(tk.Tk):
                 item.get("fecha_rechazo", ""),
                 item.get("fecha_recuperacion", ""),
                 item.get("devolucion_recibo", ""),
+                item.get("impago_enviado", ""),
                 item.get("incidencia", ""),
                 item.get("solucion", ""),
             ]
@@ -4860,6 +4967,7 @@ class ResamaniaApp(tk.Tk):
         counts_motivo = {}
         devolucion_si = 0
         devolucion_no = 0
+        pago_tras_aviso = 0
         for item in self.bajas:
             estado = str(item.get("estado", "PENDIENTE")).upper()
             counts_estado[estado] = counts_estado.get(estado, 0) + 1
@@ -4867,12 +4975,19 @@ class ResamaniaApp(tk.Tk):
             if tipo:
                 counts_tipo[tipo] = counts_tipo.get(tipo, 0) + 1
             motivo = str(item.get("motivo", "")).strip().upper()
+            if motivo.startswith("OTRO"):
+                motivo = "OTRO"
             if motivo:
                 counts_motivo[motivo] = counts_motivo.get(motivo, 0) + 1
             if str(item.get("devolucion_recibo", "")).strip().upper() == "SI":
                 devolucion_si += 1
             else:
                 devolucion_no += 1
+            if (
+                str(item.get("impago_enviado", "")).strip().upper() == "SI"
+                and str(item.get("devolucion_recibo", "")).strip().upper() != "SI"
+            ):
+                pago_tras_aviso += 1
 
         win = tk.Toplevel(self)
         win.title("Metricas bajas")
@@ -4889,24 +5004,63 @@ class ResamaniaApp(tk.Tk):
         tk.Label(resumen, text=f"RECHAZADA: {counts_estado['RECHAZADA']}").grid(row=1, column=2, sticky="w", padx=6, pady=2)
         tk.Label(resumen, text=f"DEVOLUCION RECIBO SI: {devolucion_si}").grid(row=2, column=1, sticky="w", padx=6, pady=2)
         tk.Label(resumen, text=f"DEVOLUCION RECIBO NO: {devolucion_no}").grid(row=2, column=2, sticky="w", padx=6, pady=2)
+        tk.Label(resumen, text=f"PAGO TRAS AVISO A PAYPYMES: {pago_tras_aviso}").grid(row=3, column=1, sticky="w", padx=6, pady=2)
 
-        tk.Label(win, text="MOTIVOS", font=("Arial", 9, "bold")).pack(pady=(8, 4))
-        motivos_frame = tk.Frame(win)
-        motivos_frame.pack(padx=10, pady=(0, 8), fill="x")
-        row = 0
-        for motivo, cnt in sorted(counts_motivo.items(), key=lambda x: (-x[1], x[0])):
-            pct = int(round((cnt / total) * 100)) if total else 0
-            tk.Label(motivos_frame, text=f"{motivo}: {cnt} ({pct}%)").grid(row=row, column=0, sticky="w", padx=6, pady=1)
-            row += 1
+        charts = tk.Frame(win)
+        charts.pack(padx=10, pady=(8, 10), fill="x")
+        charts.columnconfigure(0, weight=1)
+        charts.columnconfigure(1, weight=1)
 
-        tk.Label(win, text="TIPOS DE BAJA", font=("Arial", 9, "bold")).pack(pady=(6, 4))
-        tipos_frame = tk.Frame(win)
-        tipos_frame.pack(padx=10, pady=(0, 10), fill="x")
-        row = 0
-        for tipo, cnt in sorted(counts_tipo.items(), key=lambda x: (-x[1], x[0])):
+        def draw_donut(canvas, data, colors):
+            canvas.delete("all")
+            if not data:
+                return
+            total_local = sum(data.values()) or 1
+            x0, y0, x1, y1 = 10, 10, 190, 190
+            start = 0
+            items = sorted(data.items(), key=lambda x: (-x[1], x[0]))
+            for idx, (_label, val) in enumerate(items):
+                extent = (val / total_local) * 360
+                color = colors[idx % len(colors)]
+                canvas.create_arc(x0, y0, x1, y1, start=start, extent=extent, fill=color, outline="white")
+                start += extent
+            canvas.create_oval(60, 60, 140, 140, fill="white", outline="white")
+
+        # MOTIVOS
+        left = tk.Frame(charts)
+        left.grid(row=0, column=0, sticky="n")
+        tk.Label(left, text="MOTIVOS", font=("Arial", 9, "bold")).pack(pady=(0, 4))
+        motivos_canvas = tk.Canvas(left, width=200, height=200, highlightthickness=0)
+        motivos_canvas.pack()
+        motivos_colors = ["#4f81bd", "#c0504d", "#9bbb59", "#8064a2", "#4bacc6", "#f79646", "#7f7f7f"]
+        draw_donut(motivos_canvas, counts_motivo, motivos_colors)
+        motivos_list = tk.Frame(left)
+        motivos_list.pack(pady=(6, 0), anchor="w")
+        motivos_items = sorted(counts_motivo.items(), key=lambda x: (-x[1], x[0]))
+        for idx, (motivo, cnt) in enumerate(motivos_items):
             pct = int(round((cnt / total) * 100)) if total else 0
-            tk.Label(tipos_frame, text=f"{tipo}: {cnt} ({pct}%)").grid(row=row, column=0, sticky="w", padx=6, pady=1)
-            row += 1
+            row = tk.Frame(motivos_list)
+            row.pack(anchor="w")
+            tk.Label(row, width=2, bg=motivos_colors[idx % len(motivos_colors)]).pack(side="left", padx=(0, 6))
+            tk.Label(row, text=f"{motivo}: {cnt} ({pct}%)").pack(side="left")
+
+        # TIPOS
+        right = tk.Frame(charts)
+        right.grid(row=0, column=1, sticky="n")
+        tk.Label(right, text="TIPOS DE BAJA", font=("Arial", 9, "bold")).pack(pady=(0, 4))
+        tipos_canvas = tk.Canvas(right, width=200, height=200, highlightthickness=0)
+        tipos_canvas.pack()
+        tipos_colors = ["#9bbb59", "#c0504d", "#4f81bd", "#f79646", "#8064a2"]
+        draw_donut(tipos_canvas, counts_tipo, tipos_colors)
+        tipos_list = tk.Frame(right)
+        tipos_list.pack(pady=(6, 0), anchor="w")
+        tipos_items = sorted(counts_tipo.items(), key=lambda x: (-x[1], x[0]))
+        for idx, (tipo, cnt) in enumerate(tipos_items):
+            pct = int(round((cnt / total) * 100)) if total else 0
+            row = tk.Frame(tipos_list)
+            row.pack(anchor="w")
+            tk.Label(row, width=2, bg=tipos_colors[idx % len(tipos_colors)]).pack(side="left", padx=(0, 6))
+            tk.Label(row, text=f"{tipo}: {cnt} ({pct}%)").pack(side="left")
 
         tk.Button(win, text="Cerrar", command=win.destroy).pack(pady=(0, 10))
         self._incidencias_center_window(win)
