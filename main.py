@@ -2620,7 +2620,8 @@ class ResamaniaApp(tk.Tk):
             if not col_cliente or not col_producto:
                 raise ValueError("No se encontro Numero de cliente o Nombre del producto en FACTURAS Y VALES.")
 
-            df = df[[col_cliente, col_producto, col_nombre, col_apellidos, col_email, col_movil]].copy()
+            cols_base = [c for c in [col_cliente, col_producto, col_nombre, col_apellidos, col_email, col_movil] if c]
+            df = df[cols_base].copy()
             df[col_cliente] = df[col_cliente].astype(str).str.strip()
             prod = df[col_producto].astype(str).str.upper()
 
@@ -2652,14 +2653,21 @@ class ResamaniaApp(tk.Tk):
             counts = counts[counts["tipo"].notna()].copy()
 
             # Enlazar datos personales (preferir RESUMEN si existe)
-            datos = df.drop_duplicates(subset=[col_cliente])[[col_cliente, col_nombre, col_apellidos, col_email, col_movil]]
-            datos = datos.rename(columns={
-                col_cliente: "Numero de cliente",
-                col_nombre: "Nombre",
-                col_apellidos: "Apellidos",
-                col_email: "Correo electronico",
-                col_movil: "Movil",
-            })
+            datos_cols = [c for c in [col_cliente, col_nombre, col_apellidos, col_email, col_movil] if c]
+            datos = df.drop_duplicates(subset=[col_cliente])[datos_cols].copy()
+            rename_map = {col_cliente: "Numero de cliente"}
+            if col_nombre:
+                rename_map[col_nombre] = "Nombre"
+            if col_apellidos:
+                rename_map[col_apellidos] = "Apellidos"
+            if col_email:
+                rename_map[col_email] = "Correo electronico"
+            if col_movil:
+                rename_map[col_movil] = "Movil"
+            datos = datos.rename(columns=rename_map)
+            for missing in ["Nombre", "Apellidos", "Correo electronico", "Movil"]:
+                if missing not in datos.columns:
+                    datos[missing] = ""
 
             if self.resumen_df is not None:
                 cols_res = {self._norm(c): c for c in self.resumen_df.columns}
